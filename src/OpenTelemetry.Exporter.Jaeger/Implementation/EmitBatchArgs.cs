@@ -1,4 +1,4 @@
-﻿// <copyright file="EmitBatchArgs.cs" company="OpenTelemetry Authors">
+// <copyright file="EmitBatchArgs.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,47 +13,65 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 // </copyright>
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
+
+#if NETSTANDARD2_0 || NET461
+using System;
+#endif
 using Thrift.Protocol;
 using Thrift.Protocol.Entities;
 
 namespace OpenTelemetry.Exporter.Jaeger.Implementation
 {
-    internal class EmitBatchArgs
+    internal sealed class EmitBatchArgs
     {
-        public static async Task WriteAsync(int seqId, byte[] processMessage, List<BufferWriterMemory> spanMessages, TProtocol oprot, CancellationToken cancellationToken)
+        public EmitBatchArgs(TProtocol protocol)
         {
-            await oprot.WriteMessageBeginAsync(new TMessage("emitBatch", TMessageType.Oneway, seqId), cancellationToken);
+            this.EmitBatchArgsBeginMessage = this.GenerateBeginMessage(protocol, out int seqIdPosition);
+            this.SeqIdPosition = seqIdPosition;
+            this.EmitBatchArgsEndMessage = this.GenerateEndMessage(protocol);
+        }
 
-            oprot.IncrementRecursionDepth();
-            try
+        public byte[] EmitBatchArgsBeginMessage { get; }
+
+        public int SeqIdPosition { get; }
+
+        public byte[] EmitBatchArgsEndMessage { get; }
+
+        public int MinimumMessageSize => this.EmitBatchArgsBeginMessage.Length
+            + this.EmitBatchArgsEndMessage.Length;
+
+        private byte[] GenerateBeginMessage(TProtocol oprot, out int seqIdPosition)
+        {
+            oprot.WriteMessageBegin(new TMessage("emitBatch", TMessageType.Oneway, 0), out seqIdPosition);
+
+            var struc = new TStruct("emitBatch_args");
+            oprot.WriteStructBegin(struc);
+
+            var field = new TField
             {
-                var struc = new TStruct("emitBatch_args");
-                await oprot.WriteStructBeginAsync(struc, cancellationToken);
+                Name = "batch",
+                Type = TType.Struct,
+                ID = 1,
+            };
 
-                var field = new TField
-                {
-                    Name = "batch",
-                    Type = TType.Struct,
-                    ID = 1,
-                };
+            oprot.WriteFieldBegin(field);
 
-                await oprot.WriteFieldBeginAsync(field, cancellationToken);
-                await Batch.WriteAsync(processMessage, spanMessages, oprot, cancellationToken);
-                await oprot.WriteFieldEndAsync(cancellationToken);
+            byte[] beginMessage = oprot.WrittenData.ToArray();
+            oprot.Clear();
+            return beginMessage;
+        }
 
-                await oprot.WriteFieldStopAsync(cancellationToken);
-                await oprot.WriteStructEndAsync(cancellationToken);
-            }
-            finally
-            {
-                oprot.DecrementRecursionDepth();
-            }
+        private byte[] GenerateEndMessage(TProtocol oprot)
+        {
+            oprot.WriteFieldEnd();
+            oprot.WriteFieldStop();
+            oprot.WriteStructEnd();
 
-            await oprot.WriteMessageEndAsync(cancellationToken);
-            await oprot.Transport.FlushAsync(cancellationToken);
+            oprot.WriteMessageEnd();
+
+            byte[] endMessage = oprot.WrittenData.ToArray();
+            oprot.Clear();
+            return endMessage;
         }
     }
 }

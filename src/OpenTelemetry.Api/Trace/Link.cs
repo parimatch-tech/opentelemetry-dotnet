@@ -1,4 +1,4 @@
-﻿// <copyright file="Link.cs" company="OpenTelemetry Authors">
+// <copyright file="Link.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,23 +15,24 @@
 // </copyright>
 
 using System.Collections.Generic;
+using System.Diagnostics;
 
 namespace OpenTelemetry.Trace
 {
     /// <summary>
     /// Link associated with the span.
     /// </summary>
-    public readonly struct Link
+    public readonly struct Link : System.IEquatable<Link>
     {
-        private static readonly IDictionary<string, object> EmptyAttributes = new Dictionary<string, object>();
+        internal readonly ActivityLink ActivityLink;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="Link"/> struct.
         /// </summary>
         /// <param name="spanContext">Span context of a linked span.</param>
         public Link(in SpanContext spanContext)
-            : this(spanContext, EmptyAttributes)
         {
+            this.ActivityLink = new ActivityLink(spanContext.ActivityContext);
         }
 
         /// <summary>
@@ -39,21 +40,32 @@ namespace OpenTelemetry.Trace
         /// </summary>
         /// <param name="spanContext">Span context of a linked span.</param>
         /// <param name="attributes">Link attributes.</param>
-        public Link(in SpanContext spanContext, IDictionary<string, object> attributes)
+        public Link(in SpanContext spanContext, SpanAttributes attributes)
         {
-            this.Context = spanContext.IsValid ? spanContext : default;
-            this.Attributes = attributes ?? EmptyAttributes;
+            this.ActivityLink = new ActivityLink(spanContext.ActivityContext, attributes?.Attributes);
         }
 
         /// <summary>
         /// Gets the span context of a linked span.
         /// </summary>
-        public SpanContext Context { get; }
+        public SpanContext Context
+        {
+            get
+            {
+                return new SpanContext(this.ActivityLink.Context);
+            }
+        }
 
         /// <summary>
         /// Gets the collection of attributes associated with the link.
         /// </summary>
-        public IDictionary<string, object> Attributes { get; }
+        public IEnumerable<KeyValuePair<string, object>> Attributes
+        {
+            get
+            {
+                return this.ActivityLink.Tags;
+            }
+        }
 
         /// <summary>
         /// Compare two <see cref="Link"/> for equality.
@@ -72,23 +84,19 @@ namespace OpenTelemetry.Trace
         /// <inheritdoc />
         public override bool Equals(object obj)
         {
-            if (!(obj is Link))
-            {
-                return false;
-            }
-
-            Link that = (Link)obj;
-            return that.Context == this.Context &&
-                that.Attributes == this.Attributes;
+            return (obj is Link link) && this.ActivityLink.Equals(link.ActivityLink);
         }
 
         /// <inheritdoc />
         public override int GetHashCode()
         {
-            var result = 1;
-            result = (31 * result) + this.Context.GetHashCode();
-            result = (31 * result) + this.Attributes.GetHashCode();
-            return result;
+            return this.ActivityLink.GetHashCode();
+        }
+
+        /// <inheritdoc/>
+        public bool Equals(Link other)
+        {
+            return this.ActivityLink.Equals(other.ActivityLink);
         }
     }
 }

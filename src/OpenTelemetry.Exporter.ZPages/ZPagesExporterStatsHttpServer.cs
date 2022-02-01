@@ -1,4 +1,4 @@
-﻿// <copyright file="ZPagesExporterStatsHttpServer.cs" company="OpenTelemetry Authors">
+// <copyright file="ZPagesExporterStatsHttpServer.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,12 +15,13 @@
 // </copyright>
 
 using System;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using OpenTelemetry.Exporter.ZPages.Implementation;
-using OpenTelemetry.Trace.Export;
+using OpenTelemetry.Internal;
 
 namespace OpenTelemetry.Exporter.ZPages
 {
@@ -29,10 +30,8 @@ namespace OpenTelemetry.Exporter.ZPages
     /// </summary>
     public class ZPagesExporterStatsHttpServer : IDisposable
     {
-        private readonly ZPagesExporter exporter;
-        private readonly SimpleSpanProcessor spanProcessor;
         private readonly HttpListener httpListener = new HttpListener();
-        private readonly object lck = new object();
+        private readonly object syncObject = new object();
 
         private CancellationTokenSource tokenSource;
         private Task workerThread;
@@ -41,21 +40,20 @@ namespace OpenTelemetry.Exporter.ZPages
         /// Initializes a new instance of the <see cref="ZPagesExporterStatsHttpServer"/> class.
         /// </summary>
         /// <param name="exporter">The <see cref="ZPagesExporterStatsHttpServer"/> instance.</param>
-        /// <param name="spanProcessor">The <see cref="SimpleSpanProcessor"/> instance.</param>
-        public ZPagesExporterStatsHttpServer(ZPagesExporter exporter, SimpleSpanProcessor spanProcessor)
+        public ZPagesExporterStatsHttpServer(ZPagesExporter exporter)
         {
-            this.exporter = exporter;
-            this.spanProcessor = spanProcessor;
+            Guard.ThrowIfNull(exporter?.Options?.Url, $"{nameof(exporter)}?.{nameof(exporter.Options)}?.{nameof(exporter.Options.Url)}");
+
             this.httpListener.Prefixes.Add(exporter.Options.Url);
         }
 
         /// <summary>
         /// Start exporter.
         /// </summary>
-        /// <param name="token">An optional <see cref="CancellationToken"/> that can be used to stop the htto server.</param>
+        /// <param name="token">An optional <see cref="CancellationToken"/> that can be used to stop the http server.</param>
         public void Start(CancellationToken token = default)
         {
-            lock (this.lck)
+            lock (this.syncObject)
             {
                 if (this.tokenSource != null)
                 {
@@ -67,7 +65,7 @@ namespace OpenTelemetry.Exporter.ZPages
                     new CancellationTokenSource() :
                     CancellationTokenSource.CreateLinkedTokenSource(token);
 
-                this.workerThread = Task.Factory.StartNew((Action)this.WorkerThread, TaskCreationOptions.LongRunning);
+                this.workerThread = Task.Factory.StartNew(this.WorkerThread, default, TaskCreationOptions.LongRunning, TaskScheduler.Default);
             }
         }
 
@@ -76,7 +74,7 @@ namespace OpenTelemetry.Exporter.ZPages
         /// </summary>
         public void Stop()
         {
-            lock (this.lck)
+            lock (this.syncObject)
             {
                 if (this.tokenSource == null)
                 {
@@ -94,6 +92,16 @@ namespace OpenTelemetry.Exporter.ZPages
         /// </summary>
         public void Dispose()
         {
+            this.Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        /// <summary>
+        /// Releases the unmanaged resources used by this class and optionally releases the managed resources.
+        /// </summary>
+        /// <param name="disposing"><see langword="true"/> to release both managed and unmanaged resources; <see langword="false"/> to release only unmanaged resources.</param>
+        protected virtual void Dispose(bool disposing)
+        {
             if (this.httpListener != null && this.httpListener.IsListening)
             {
                 this.Stop();
@@ -108,7 +116,7 @@ namespace OpenTelemetry.Exporter.ZPages
             {
                 while (!this.tokenSource.IsCancellationRequested)
                 {
-                    var ctxTask = this.httpListener.GetContextAsync();
+                    Task<HttpListenerContext> ctxTask = this.httpListener.GetContextAsync();
                     ctxTask.Wait(this.tokenSource.Token);
 
                     var ctx = ctxTask.Result;
@@ -116,18 +124,69 @@ namespace OpenTelemetry.Exporter.ZPages
                     ctx.Response.StatusCode = 200;
                     ctx.Response.ContentType = ZPagesStatsBuilder.ContentType;
 
-                    using var output = ctx.Response.OutputStream;
+                    using Stream output = ctx.Response.OutputStream;
                     using var writer = new StreamWriter(output);
-                    writer.WriteLine("Span Count : " + this.spanProcessor.GetSpanCount());
+                    writer.WriteLine("<!DOCTYPE html>");
+                    writer.WriteLine("<html><head><title>RPC Stats</title>" +
+                                     "<meta charset=\"utf-8\">" +
+                                     "<link rel=\"stylesheet\" href=\"https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css\">" +
+                                     "<script src=\"https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js\"></script>" +
+                                     "<script src=\"https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/js/bootstrap.min.js\"></script>" +
+                                     "</head>");
+                    writer.WriteLine("<body><div class=\"col-sm-1\"></div><div class=\"container col-sm-10\"><div class=\"jumbotron table-responsive\"><h1>RPC Stats</h2>" +
+                                     "<table class=\"table table-bordered table-hover table-striped\">" +
+                                     "<thead><tr><th>Span Name</th><th>Total Count</th><th>Count in last minute</th><th>Count in last hour</th><th>Average Latency (ms)</th>" +
+                                     "<th>Average Latency in last minute (ms)</th><th>Average Latency in last hour (ms)</th><th>Total Errors</th><th>Errors in last minute</th><th>Errors in last minute</th><th>Last Updated</th></tr></thead>" +
+                                     "<tbody>");
+
+                    ConcurrentDictionary<string, ZPagesActivityAggregate> currentHourSpanList = ZPagesActivityTracker.CurrentHourList;
+                    ConcurrentDictionary<string, ZPagesActivityAggregate> currentMinuteSpanList = ZPagesActivityTracker.CurrentMinuteList;
+
+                    // Put span information in each row of the table
+                    foreach (var spanName in currentHourSpanList.Keys)
+                    {
+                        long countInLastMinute = 0;
+                        long countInLastHour = 0;
+                        long averageLatencyInLastMinute = 0;
+                        long averageLatencyInLastHour = 0;
+                        long errorCountInLastMinute = 0;
+                        long errorCountInLastHour = 0;
+
+                        if (currentMinuteSpanList.ContainsKey(spanName))
+                        {
+                            currentMinuteSpanList.TryGetValue(spanName, out ZPagesActivityAggregate minuteSpanInformation);
+                            countInLastMinute = minuteSpanInformation.EndedCount + ZPagesActivityTracker.ProcessingList[spanName];
+                            averageLatencyInLastMinute = minuteSpanInformation.AvgLatencyTotal;
+                            errorCountInLastMinute = minuteSpanInformation.ErrorCount;
+                        }
+
+                        currentHourSpanList.TryGetValue(spanName, out ZPagesActivityAggregate hourSpanInformation);
+                        countInLastHour = hourSpanInformation.EndedCount + ZPagesActivityTracker.ProcessingList[spanName];
+                        averageLatencyInLastHour = hourSpanInformation.AvgLatencyTotal;
+                        errorCountInLastHour = hourSpanInformation.ErrorCount;
+
+                        long totalAverageLatency = ZPagesActivityTracker.TotalLatency[spanName] / ZPagesActivityTracker.TotalEndedCount[spanName];
+
+                        DateTimeOffset dateTimeOffset;
+
+                        dateTimeOffset = DateTimeOffset.FromUnixTimeMilliseconds(hourSpanInformation.LastUpdated);
+
+                        writer.WriteLine("<tr><td>" + hourSpanInformation.Name + "</td><td>" + ZPagesActivityTracker.TotalCount[spanName] + "</td><td>" + countInLastMinute + "</td><td>" + countInLastHour + "</td>" +
+                                         "<td>" + totalAverageLatency + "</td><td>" + averageLatencyInLastMinute + "</td><td>" + averageLatencyInLastHour + "</td>" +
+                                         "<td>" + ZPagesActivityTracker.TotalErrorCount[spanName] + "</td><td>" + errorCountInLastMinute + "</td><td>" + errorCountInLastHour + "</td><td>" + dateTimeOffset + " GMT" + "</td></tr>");
+                    }
+
+                    writer.WriteLine("</tbody></table>");
+                    writer.WriteLine("</div></div></body></html>");
                 }
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException ex)
             {
-                // this will happen when cancellation will be requested
+                ZPagesExporterEventSource.Log.CanceledExport(ex);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // TODO: report error
+                ZPagesExporterEventSource.Log.FailedExport(ex);
             }
             finally
             {

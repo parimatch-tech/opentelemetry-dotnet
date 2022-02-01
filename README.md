@@ -1,82 +1,150 @@
 # OpenTelemetry .NET
-[![Gitter chat](https://img.shields.io/gitter/room/opentelemetry/opentelemetry-dotnet)](https://gitter.im/open-telemetry/opentelemetry-dotnet)
-[![Build Status](https://dev.azure.com/opentelemetry/pipelines/_apis/build/status/open-telemetry.opentelemetry-dotnet-myget-update?branchName=master)](https://dev.azure.com/opentelemetry/pipelines/_build/latest?definitionId=2&branchName=master)
+
+[![Slack](https://img.shields.io/badge/slack-@cncf/otel/dotnet-brightgreen.svg?logo=slack)](https://cloud-native.slack.com/archives/C01N3BC2W7Q)
+[![codecov.io](https://codecov.io/gh/open-telemetry/opentelemetry-dotnet/branch/main/graphs/badge.svg?)](https://codecov.io/gh/open-telemetry/opentelemetry-dotnet/)
+[![Release](https://img.shields.io/github/v/release/open-telemetry/opentelemetry-dotnet)](https://github.com/open-telemetry/opentelemetry-dotnet/releases/)
+[![Nuget](https://img.shields.io/nuget/v/OpenTelemetry.svg)](https://www.nuget.org/profiles/OpenTelemetry)
+[![NuGet](https://img.shields.io/nuget/dt/OpenTelemetry.svg)](https://www.nuget.org/profiles/OpenTelemetry)
+[![Linux](https://github.com/open-telemetry/opentelemetry-dotnet/actions/workflows/linux-ci.yml/badge.svg?branch=main)](https://github.com/open-telemetry/opentelemetry-dotnet/actions/workflows/linux-ci.yml)
+[![Windows](https://github.com/open-telemetry/opentelemetry-dotnet/actions/workflows/windows-ci.yml/badge.svg?branch=main)](https://github.com/open-telemetry/opentelemetry-dotnet/actions/workflows/windows-ci.yml)
 
 The .NET [OpenTelemetry](https://opentelemetry.io/) client.
 
-## Installation
+## Supported .NET Versions
 
-This repository includes multiple installable packages. The `OpenTelemetry.Api`
-package includes abstract classes and no-op implementations for the [OpenTelemetry API 
-specification](https://github.com/open-telemetry/opentelemetry-specification).
+Packages shipped from this repository generally support all the officially
+supported versions of [.NET
+Core](https://dotnet.microsoft.com/download/dotnet-core), and [.NET
+Framework](https://dotnet.microsoft.com/download/dotnet-framework) except for
+versions lower than `.NET Framework 4.6.1`.
+Any exceptions to this are noted in the individual `README.md` files.
 
-The `OpenTelemetry` package is the reference implementation of the API.
+## Getting Started
 
-Libraries that produce telemetry data should only depend on `OpenTelemetry.Api`,
-and defer the choice of the SDK to the application developer. Applications may
-depend on `OpenTelemetry` or another package that implements the API.
+If you are new here, please read the getting started docs:
 
-**Please note** that this library is currently in _alpha_, and shouldn't
-generally be used in production environments.
+* [logs](./docs/logs/getting-started/README.md)
+* [metrics](./docs/metrics/getting-started/README.md) (experimental)
+* [trace](./docs/trace/getting-started/README.md)
 
-The API and SDK packages are available on the following NuGet feeds:
-* [MyGet V2](https://www.myget.org/F/opentelemetry/api/v2)
-* [MyGet V3](https://www.myget.org/F/opentelemetry/api/v3/index.json)
+This repository includes multiple installable components, available on
+[NuGet](https://www.nuget.org/profiles/OpenTelemetry). Each component has its
+individual `README.md` file, which covers the instruction on how to install and
+how to get started. To find all the available components, please take a look at
+the `src` folder.
 
-## Documentation
+Here are the most commonly used components:
 
-The online documentation is available at TBD.
+* [OpenTelemetry .NET API](./src/OpenTelemetry.Api/README.md)
+* [OpenTelemetry .NET SDK](./src/OpenTelemetry/README.md)
 
-## Compatible Exporters
+Here are the [instrumentation
+libraries](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/glossary.md#instrumentation-library):
 
-See the [OpenTelemetry registry](https://opentelemetry.io/registry/?s=net) for a list of exporters available.
+* [ASP.NET](./src/OpenTelemetry.Instrumentation.AspNet/README.md)
+* [ASP.NET Core](./src/OpenTelemetry.Instrumentation.AspNetCore/README.md)
+* [Grpc.Net.Client](./src/OpenTelemetry.Instrumentation.GrpcNetClient/README.md)
+* [HTTP clients](./src/OpenTelemetry.Instrumentation.Http/README.md)
+* [Redis client](./src/OpenTelemetry.Instrumentation.StackExchangeRedis/README.md)
+* [SQL client](./src/OpenTelemetry.Instrumentation.SqlClient/README.md)
+
+Here are the [exporter
+libraries](https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/glossary.md#exporter-library):
+
+* [Console](./src/OpenTelemetry.Exporter.Console/README.md)
+* [In-memory](./src/OpenTelemetry.Exporter.InMemory/README.md)
+* [Jaeger](./src/OpenTelemetry.Exporter.Jaeger/README.md)
+* [OTLP](./src/OpenTelemetry.Exporter.OpenTelemetryProtocol/README.md)
+  (OpenTelemetry Protocol)
+* [Zipkin](./src/OpenTelemetry.Exporter.Zipkin/README.md)
+* [Prometheus](./src/OpenTelemetry.Exporter.Prometheus/README.md)
+
+See the [OpenTelemetry registry](https://opentelemetry.io/registry/?s=net) for
+more exporters.
+
+## Customization
+
+OpenTelemetry .NET is designed to be customizable and extensible. Here are the
+most common customization and extension scenarios:
+
+* [Building a custom instrumentation
+  library](./docs/trace/extending-the-sdk/README.md#instrumentation-library)
+* [Building a custom log
+  exporter/processor/sampler](./docs/logs/extending-the-sdk/README.md)
+* [Building a custom trace
+  exporter/processor/sampler](./docs/trace/extending-the-sdk/README.md)
 
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md)
 
-We meet weekly on Tuesdays, and the time of the meeting alternates between 11AM PT and 4PM PT. The meeting is subject to change depending on contributors' availability. Check the [OpenTelemetry community calendar](https://calendar.google.com/calendar/embed?src=google.com_b79e3e90j7bbsa2n2p5an5lf60%40group.calendar.google.com) for specific dates.
+We meet weekly on Tuesdays, and the time of the meeting alternates between 11AM
+PT and 4PM PT. The meeting is subject to change depending on contributors'
+availability. Check the [OpenTelemetry community
+calendar](https://calendar.google.com/calendar/embed?src=google.com_b79e3e90j7bbsa2n2p5an5lf60%40group.calendar.google.com)
+for specific dates and for Zoom meeting links.
 
-Meetings take place via [Zoom video conference](https://zoom.us/j/8287234601).
+Meeting notes are available as a public [Google
+doc](https://docs.google.com/document/d/1yjjD6aBcLxlRazYrawukDgrhZMObwHARJbB9glWdHj8/edit?usp=sharing).
+If you have trouble accessing the doc, please get in touch on
+[Slack](https://cloud-native.slack.com/archives/C01N3BC2W7Q).
 
-Meeting notes are available as a public [Google doc](https://docs.google.com/document/d/1yjjD6aBcLxlRazYrawukDgrhZMObwHARJbB9glWdHj8/edit?usp=sharing). For edit access, get in touch on [Gitter](https://gitter.im/open-telemetry/opentelemetry-dotnet).
+Approvers
+([@open-telemetry/dotnet-approvers](https://github.com/orgs/open-telemetry/teams/dotnet-approvers)):
 
-Approvers ([@open-telemetry/dotnet-approvers](https://github.com/orgs/open-telemetry/teams/dotnet-approvers)):
+* [Bruno Garcia](https://github.com/bruno-garcia), Sentry
+* [Eddy Nakamura](https://github.com/eddynaka), Microsoft
+* [Paulo Janotti](https://github.com/pjanotti), Splunk
+* [Reiley Yang](https://github.com/reyang), Microsoft
+* [Robert Pajak](https://github.com/pellared), Splunk
+* [Utkarsh Umesan Pillai](https://github.com/utpilla), Microsoft
 
-- [Bruno Garcia](https://github.com/bruno-garcia), Sentry
-- [Christoph Neumueller](https://github.com/discostu105), Dynatrace
-- [Liudmila Molkova](https://github.com/lmolkova), Microsoft
-- [Paulo Janotti](https://github.com/pjanotti), Splunk
+*Find more about the approver role in [community
+repository](https://github.com/open-telemetry/community/blob/main/community-membership.md#approver).*
 
-Triagers:
+Maintainers
+([@open-telemetry/dotnet-maintainers](https://github.com/orgs/open-telemetry/teams/dotnet-maintainers)):
 
-- [Reiley Yang](https://github.com/reyang), Microsoft
+* [Alan West](https://github.com/alanwest), New Relic
+* [Cijo Thomas](https://github.com/cijothomas), Microsoft
+* [Mike Goldsmith](https://github.com/MikeGoldsmith), Honeycomb
+* [Mikel Blanchard](https://github.com/CodeBlanch), CoStar Group
+* [Sergey Kanzhelev](https://github.com/SergeyKanzhelev), Google
 
-*Find more about the approver role in [community repository](https://github.com/open-telemetry/community/blob/master/community-membership.md#approver).*
+*Find more about the maintainer role in [community
+repository](https://github.com/open-telemetry/community/blob/main/community-membership.md#maintainer).*
 
-Maintainers ([@open-telemetry/dotnet-maintainers](https://github.com/orgs/open-telemetry/teams/dotnet-maintainers)):
+Triager
+([@open-telemetry/dotnet-triagers](https://github.com/orgs/open-telemetry/teams/dotnet-triagers)):
 
-- [Cijo Thomas](https://github.com/cijothomas), Microsoft
-- [Mike Goldsmith](https://github.com/MikeGoldsmith), LightStep
-- [Sergey Kanzhelev](https://github.com/SergeyKanzhelev), Google
+* [Victor Lu](https://github.com/victlu), Microsoft
 
-*Find more about the maintainer role in [community repository](https://github.com/open-telemetry/community/blob/master/community-membership.md#maintainer).*
+*Find more about the triager role in [community
+repository](https://github.com/open-telemetry/community/blob/main/community-membership.md#triager).*
+
+### Thanks to all the people who have contributed
+
+[![contributors](https://contributors-img.web.app/image?repo=open-telemetry/opentelemetry-dotnet)](https://github.com/open-telemetry/opentelemetry-dotnet/graphs/contributors)
 
 ## Release Schedule
 
-OpenTelemetry .NET is under active development.
+Only the [core components](./VERSIONING.md#core-components) of the repo have
+released a stable version. Components which are marked
+[pre-release](https://github.com/open-telemetry/opentelemetry-dotnet/blob/main/VERSIONING.md#pre-releases),
+are still work in progress and can undergo many breaking changes before stable
+release.
 
-The library is not yet _generally available_, and releases aren't guaranteed to
-conform to a specific version of the specification. Future releases will not
-attempt to maintain backwards compatibility with previous releases. Each alpha
-and beta release includes significant changes to the API and SDK packages,
-making them incompatible with each other.
+See special note about [Metrics release
+plans](https://github.com/open-telemetry/opentelemetry-dotnet/issues/1501).
 
 See the [release
-notes](https://github.com/open-telemetry/opentelemetry-dotnet/releases)
-for existing releases.
+notes](https://github.com/open-telemetry/opentelemetry-dotnet/releases) for
+existing releases.
 
 See the [project
 milestones](https://github.com/open-telemetry/opentelemetry-dotnet/milestones)
-for details on upcoming releases. The dates and features described in issues
-and milestones are estimates, and subject to change.
+for details on upcoming releases. The dates and features described in issues and
+milestones are estimates, and subject to change.
+
+Daily builds from this repo are published to MyGet, and can be installed from
+[this source](https://www.myget.org/F/opentelemetry/api/v3/index.json).

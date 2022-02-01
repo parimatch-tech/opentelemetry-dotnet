@@ -1,0 +1,24 @@
+name: docfx
+
+on:
+  push:
+    branches: [ main, metrics ]
+  pull_request:
+    branches: [ main, metrics ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: check out code
+      uses: actions/checkout@v2
+
+    - name: install docfx
+      # specifying 2.58.5 version as latest release (2.58.8) has an issue
+      # https://github.com/dotnet/docfx/issues/7689
+      run: choco install docfx -y --version=2.58.5
+
+    - name: run .\build\docfx.cmd
+      shell: cmd
+      run: .\build\docfx.cmd

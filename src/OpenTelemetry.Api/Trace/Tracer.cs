@@ -1,4 +1,4 @@
-﻿// <copyright file="Tracer.cs" company="OpenTelemetry Authors">
+// <copyright file="Tracer.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,64 +17,181 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
+using System.Runtime.CompilerServices;
 
 namespace OpenTelemetry.Trace
 {
     /// <summary>
-    /// Tracer to record distributed tracing information.
+    /// Tracer is the class responsible for creating <see cref="TelemetrySpan"/>.
     /// </summary>
-    public abstract class Tracer
+    /// <remarks>Tracer is a wrapper around <see cref="ActivitySource"/> class.</remarks>
+    public class Tracer
     {
+        internal readonly ActivitySource ActivitySource;
+
+        internal Tracer(ActivitySource activitySource)
+        {
+            this.ActivitySource = activitySource;
+        }
+
         /// <summary>
         /// Gets the current span from the context.
         /// </summary>
-        public abstract TelemetrySpan CurrentSpan { get; }
+        public static TelemetrySpan CurrentSpan
+        {
+            get
+            {
+                var currentActivity = Activity.Current;
+                if (currentActivity == null)
+                {
+                    return TelemetrySpan.NoopInstance;
+                }
+                else
+                {
+                    return new TelemetrySpan(currentActivity);
+                }
+            }
+        }
 
         /// <summary>
-        /// Activates the span on the current context.
+        /// Makes the given span as the current one.
         /// </summary>
-        /// <param name="span">Span to associate with the current context.</param>
-        /// <param name="endSpanOnDispose">Flag indicating if span should end when scope is disposed.</param>
-        /// <returns>Disposable object to control span to current context association.</returns>
-        public abstract IDisposable WithSpan(TelemetrySpan span, bool endSpanOnDispose);
+        /// <param name="span">The span to be made current.</param>
+        /// <returns>The current span.</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static TelemetrySpan WithSpan(TelemetrySpan span)
+        {
+            span?.Activate();
+            return span;
+        }
 
         /// <summary>
         /// Starts root span.
         /// </summary>
-        /// <param name="operationName">Span name.</param>
+        /// <param name="name">Span name.</param>
         /// <param name="kind">Kind.</param>
-        /// <param name="options">Advanced span creation options.</param>
+        /// <param name="initialAttributes">Initial attributes for the span.</param>
+        /// <param name="links"> <see cref="Link"/> for the span.</param>
+        /// <param name="startTime"> Start time for the span.</param>
         /// <returns>Span instance.</returns>
-        public abstract TelemetrySpan StartRootSpan(string operationName, SpanKind kind, SpanCreationOptions options);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public TelemetrySpan StartRootSpan(string name, SpanKind kind = SpanKind.Internal, SpanAttributes initialAttributes = null, IEnumerable<Link> links = null, DateTimeOffset startTime = default)
+        {
+            return this.StartSpanHelper(false, name, kind, default, initialAttributes, links, startTime);
+        }
 
         /// <summary>
-        /// Starts span.
+        /// Starts a span and does not make it as current span.
         /// </summary>
-        /// <param name="operationName">Span name.</param>
-        /// <param name="parent">Parent for new span.</param>
+        /// <param name="name">Span name.</param>
         /// <param name="kind">Kind.</param>
-        /// <param name="options">Advanced span creation options.</param>
+        /// <param name="parentSpan">Parent for new span.</param>
+        /// <param name="initialAttributes">Initial attributes for the span.</param>
+        /// <param name="links"> <see cref="Link"/> for the span.</param>
+        /// <param name="startTime"> Start time for the span.</param>
         /// <returns>Span instance.</returns>
-        public abstract TelemetrySpan StartSpan(string operationName, TelemetrySpan parent, SpanKind kind, SpanCreationOptions options);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("ApiDesign", "RS0026:Do not add multiple public overloads with optional parameters", Justification = "This was agreed on to be the friendliest API surface")]
+        public TelemetrySpan StartSpan(string name, SpanKind kind, in TelemetrySpan parentSpan, SpanAttributes initialAttributes = null, IEnumerable<Link> links = null, DateTimeOffset startTime = default)
+        {
+            return this.StartSpan(name, kind, parentSpan?.Context ?? default, initialAttributes, links, startTime);
+        }
 
         /// <summary>
-        /// Starts span.
+        /// Starts a span and does not make it as current span.
         /// </summary>
-        /// <param name="operationName">Span name.</param>
-        /// <param name="parent">Parent for new span.</param>
+        /// <param name="name">Span name.</param>
         /// <param name="kind">Kind.</param>
-        /// <param name="options">Advanced span creation options.</param>
+        /// <param name="parentContext">Parent Context for new span.</param>
+        /// <param name="initialAttributes">Initial attributes for the span.</param>
+        /// <param name="links"> <see cref="Link"/> for the span.</param>
+        /// <param name="startTime"> Start time for the span.</param>
         /// <returns>Span instance.</returns>
-        public abstract TelemetrySpan StartSpan(string operationName, in SpanContext parent, SpanKind kind, SpanCreationOptions options);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("ApiDesign", "RS0026:Do not add multiple public overloads with optional parameters", Justification = "This was agreed on to be the friendliest API surface")]
+        public TelemetrySpan StartSpan(string name, SpanKind kind = SpanKind.Internal, in SpanContext parentContext = default, SpanAttributes initialAttributes = null, IEnumerable<Link> links = null, DateTimeOffset startTime = default)
+        {
+            return this.StartSpanHelper(false, name, kind, parentContext, initialAttributes, links, startTime);
+        }
 
         /// <summary>
-        /// Starts span from auto-collected <see cref="Activity"/>.
+        /// Starts a span and make it the current active span.
         /// </summary>
-        /// <param name="operationName">Span name.</param>
-        /// <param name="activity">Activity instance to create span from.</param>
+        /// <param name="name">Span name.</param>
         /// <param name="kind">Kind.</param>
-        /// <param name="links">Links collection.</param>
-        /// <returns>Span scope instance.</returns>
-        public abstract TelemetrySpan StartSpanFromActivity(string operationName, Activity activity, SpanKind kind, IEnumerable<Link> links);
+        /// <param name="parentSpan">Parent for new span.</param>
+        /// <param name="initialAttributes">Initial attributes for the span.</param>
+        /// <param name="links"> <see cref="Link"/> for the span.</param>
+        /// <param name="startTime"> Start time for the span.</param>
+        /// <returns>Span instance.</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("ApiDesign", "RS0026:Do not add multiple public overloads with optional parameters", Justification = "This was agreed on to be the friendliest API surface")]
+        public TelemetrySpan StartActiveSpan(string name, SpanKind kind, in TelemetrySpan parentSpan, SpanAttributes initialAttributes = null, IEnumerable<Link> links = null, DateTimeOffset startTime = default)
+        {
+            return this.StartActiveSpan(name, kind, parentSpan?.Context ?? default, initialAttributes, links, startTime);
+        }
+
+        /// <summary>
+        /// Starts a span and make it the current active span.
+        /// </summary>
+        /// <param name="name">Span name.</param>
+        /// <param name="kind">Kind.</param>
+        /// <param name="parentContext">Parent Context for new span.</param>
+        /// <param name="initialAttributes">Initial attributes for the span.</param>
+        /// <param name="links"> <see cref="Link"/> for the span.</param>
+        /// <param name="startTime"> Start time for the span.</param>
+        /// <returns>Span instance.</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("ApiDesign", "RS0026:Do not add multiple public overloads with optional parameters", Justification = "This was agreed on to be the friendliest API surface")]
+        public TelemetrySpan StartActiveSpan(string name, SpanKind kind = SpanKind.Internal, in SpanContext parentContext = default, SpanAttributes initialAttributes = null, IEnumerable<Link> links = null, DateTimeOffset startTime = default)
+        {
+            return this.StartSpanHelper(true, name, kind, parentContext, initialAttributes, links, startTime);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static ActivityKind ConvertToActivityKind(SpanKind kind)
+        {
+            return kind switch
+            {
+                SpanKind.Client => ActivityKind.Client,
+                SpanKind.Consumer => ActivityKind.Consumer,
+                SpanKind.Internal => ActivityKind.Internal,
+                SpanKind.Producer => ActivityKind.Producer,
+                SpanKind.Server => ActivityKind.Server,
+                _ => ActivityKind.Internal,
+            };
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private TelemetrySpan StartSpanHelper(bool isActiveSpan, string name, SpanKind kind, in SpanContext parentContext = default, SpanAttributes initialAttributes = null, IEnumerable<Link> links = null, DateTimeOffset startTime = default)
+        {
+            if (!this.ActivitySource.HasListeners())
+            {
+                return TelemetrySpan.NoopInstance;
+            }
+
+            var activityKind = ConvertToActivityKind(kind);
+            var activityLinks = links?.Select(l => l.ActivityLink);
+
+            Activity previousActivity = null;
+            if (!isActiveSpan)
+            {
+                previousActivity = Activity.Current;
+            }
+
+            var activity = this.ActivitySource.StartActivity(name, activityKind, parentContext.ActivityContext, initialAttributes?.Attributes ?? null, activityLinks, startTime);
+            if (activity == null)
+            {
+                return TelemetrySpan.NoopInstance;
+            }
+
+            if (!isActiveSpan)
+            {
+                Activity.Current = previousActivity;
+            }
+
+            return new TelemetrySpan(activity);
+        }
     }
 }

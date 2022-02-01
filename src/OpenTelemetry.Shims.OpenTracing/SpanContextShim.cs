@@ -1,4 +1,4 @@
-﻿// <copyright file="SpanContextShim.cs" company="OpenTelemetry Authors">
+// <copyright file="SpanContextShim.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,17 +16,17 @@
 
 using System;
 using System.Collections.Generic;
-using global::OpenTracing;
+using OpenTracing;
 
 namespace OpenTelemetry.Shims.OpenTracing
 {
-    public sealed class SpanContextShim : ISpanContext
+    internal sealed class SpanContextShim : ISpanContext
     {
         public SpanContextShim(in Trace.SpanContext spanContext)
         {
             if (!spanContext.IsValid)
             {
-                throw new ArgumentException(nameof(spanContext));
+                throw new ArgumentException($"Invalid '{nameof(Trace.SpanContext)}'", nameof(spanContext));
             }
 
             this.SpanContext = spanContext;
@@ -40,11 +40,7 @@ namespace OpenTelemetry.Shims.OpenTracing
         /// <inheritdoc/>
         public string SpanId => this.SpanContext.SpanId.ToString();
 
-        /// <inheritdoc/>
         public IEnumerable<KeyValuePair<string, string>> GetBaggageItems()
-        {
-            // TODO
-            throw new NotImplementedException();
-        }
+            => Baggage.GetBaggage();
     }
 }

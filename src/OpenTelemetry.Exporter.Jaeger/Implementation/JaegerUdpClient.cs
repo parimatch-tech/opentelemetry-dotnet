@@ -1,4 +1,4 @@
-﻿// <copyright file="JaegerUdpClient.cs" company="OpenTelemetry Authors">
+// <copyright file="JaegerUdpClient.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,50 +13,47 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 // </copyright>
-#if NETSTANDARD2_1
-using System;
-#else
-using System.Diagnostics;
-#endif
-using System.Net;
+
 using System.Net.Sockets;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace OpenTelemetry.Exporter.Jaeger.Implementation
 {
-    internal class JaegerUdpClient : IJaegerClient
+    internal sealed class JaegerUdpClient : IJaegerClient
     {
+        private readonly string host;
+        private readonly int port;
         private readonly UdpClient client;
+        private bool disposed;
 
-        public JaegerUdpClient()
+        public JaegerUdpClient(string host, int port)
         {
+            this.host = host;
+            this.port = port;
             this.client = new UdpClient();
         }
 
         public bool Connected => this.client.Client.Connected;
 
-        public EndPoint RemoteEndPoint => this.client.Client.RemoteEndPoint;
-
         public void Close() => this.client.Close();
 
-        public void Connect(string host, int port) => this.client.Connect(host, port);
+        public void Connect() => this.client.Connect(this.host, this.port);
 
-        public ValueTask<int> SendAsync(byte[] buffer, CancellationToken cancellationToken = default)
+        public int Send(byte[] buffer, int offset, int count)
         {
-            return this.SendAsync(buffer, 0, buffer?.Length ?? 0);
+            return this.client.Client.Send(buffer, offset, count, SocketFlags.None);
         }
 
-        public ValueTask<int> SendAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default)
+        /// <inheritdoc/>
+        public void Dispose()
         {
-#if NETSTANDARD2_1
-            return this.client.Client.SendAsync(new ReadOnlyMemory<byte>(buffer, offset, count), SocketFlags.None, cancellationToken);
-#else
-            Debug.Assert(offset == 0, "Offset isn't supported in .NET Standard 2.0.");
-            return new ValueTask<int>(this.client.SendAsync(buffer, count));
-#endif
-        }
+            if (this.disposed)
+            {
+                return;
+            }
 
-        public void Dispose() => this.client.Dispose();
+            this.client.Dispose();
+
+            this.disposed = true;
+        }
     }
 }

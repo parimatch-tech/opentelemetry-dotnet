@@ -1,4 +1,4 @@
-﻿// <copyright file="ConsoleActivityExporter.cs" company="OpenTelemetry Authors">
+// <copyright file="ConsoleActivityExporter.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,98 +14,79 @@
 // limitations under the License.
 // </copyright>
 
-using System.Collections.Generic;
+using System;
 using System.Diagnostics;
 using System.Linq;
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Threading;
-using System.Threading.Tasks;
-using OpenTelemetry.Trace.Export;
+using OpenTelemetry.Resources;
 
-namespace OpenTelemetry.Exporter.Console
+namespace OpenTelemetry.Exporter
 {
-    public class ConsoleActivityExporter : ActivityExporter
+    public class ConsoleActivityExporter : ConsoleExporter<Activity>
     {
-        private readonly JsonSerializerOptions serializerOptions;
-        private bool displayAsJson;
-
-        public ConsoleActivityExporter(ConsoleActivityExporterOptions options)
+        public ConsoleActivityExporter(ConsoleExporterOptions options)
+            : base(options)
         {
-            this.serializerOptions = new JsonSerializerOptions()
-            {
-                WriteIndented = true,
-            };
-
-            this.displayAsJson = options.DisplayAsJson;
-
-            this.serializerOptions.Converters.Add(new JsonStringEnumConverter());
-            this.serializerOptions.Converters.Add(new ActivitySpanIdConverter());
-            this.serializerOptions.Converters.Add(new ActivityTraceIdConverter());
         }
 
-        public override Task<ExportResult> ExportAsync(IEnumerable<Activity> activityBatch, CancellationToken cancellationToken)
+        public override ExportResult Export(in Batch<Activity> batch)
         {
-            foreach (var activity in activityBatch)
+            foreach (var activity in batch)
             {
-                if (this.displayAsJson)
+                this.WriteLine($"Activity.Id:          {activity.Id}");
+                if (!string.IsNullOrEmpty(activity.ParentId))
                 {
-                    System.Console.WriteLine(JsonSerializer.Serialize(activity, this.serializerOptions));
+                    this.WriteLine($"Activity.ParentId:    {activity.ParentId}");
                 }
-                else
+
+                this.WriteLine($"Activity.ActivitySourceName: {activity.Source.Name}");
+                this.WriteLine($"Activity.DisplayName: {activity.DisplayName}");
+                this.WriteLine($"Activity.Kind:        {activity.Kind}");
+                this.WriteLine($"Activity.StartTime:   {activity.StartTimeUtc:yyyy-MM-ddTHH:mm:ss.fffffffZ}");
+                this.WriteLine($"Activity.Duration:    {activity.Duration}");
+                if (activity.TagObjects.Any())
                 {
-                    System.Console.WriteLine("Activity ID - " + activity.Id);
-                    if (!string.IsNullOrEmpty(activity.ParentId))
+                    this.WriteLine("Activity.TagObjects:");
+                    foreach (var tag in activity.TagObjects)
                     {
-                        System.Console.WriteLine("Activity ParentId - " + activity.ParentId);
-                    }
+                        var array = tag.Value as Array;
 
-                    System.Console.WriteLine("Activity OperationName - " + activity.OperationName);
-                    System.Console.WriteLine("Activity DisplayName - " + activity.DisplayName);
-                    System.Console.WriteLine("Activity Kind - " + activity.Kind);
-                    System.Console.WriteLine("Activity StartTime - " + activity.StartTimeUtc);
-                    System.Console.WriteLine("Activity Duration - " + activity.Duration);
-                    if (activity.Tags.Count() > 0)
-                    {
-                        System.Console.WriteLine("Activity Tags");
-                        foreach (var tag in activity.Tags)
+                        if (array == null)
                         {
-                            System.Console.WriteLine($"\t {tag.Key} : {tag.Value}");
+                            this.WriteLine($"    {tag.Key}: {tag.Value}");
+                            continue;
                         }
-                    }
 
-                    if (activity.Events.Any())
-                    {
-                        System.Console.WriteLine("Activity Events");
-                        foreach (var activityEvent in activity.Events)
-                        {
-                            System.Console.WriteLine($"Event Name: {activityEvent.Name} TimeStamp: {activityEvent.Timestamp}");
-                            foreach (var attribute in activityEvent.Attributes)
-                            {
-                                System.Console.WriteLine($"\t {attribute.Key} : {attribute.Value}");
-                            }
-                        }
+                        this.WriteLine($"    {tag.Key}: [{string.Join(", ", array.Cast<object>())}]");
                     }
-
-                    if (activity.Baggage.Any())
-                    {
-                        System.Console.WriteLine("Activity Baggage");
-                        foreach (var baggage in activity.Baggage)
-                        {
-                            System.Console.WriteLine($"\t {baggage.Key} : {baggage.Value}");
-                        }
-                    }
-
-                    System.Console.WriteLine("\n");
                 }
+
+                if (activity.Events.Any())
+                {
+                    this.WriteLine("Activity.Events:");
+                    foreach (var activityEvent in activity.Events)
+                    {
+                        this.WriteLine($"    {activityEvent.Name} [{activityEvent.Timestamp}]");
+                        foreach (var attribute in activityEvent.Tags)
+                        {
+                            this.WriteLine($"        {attribute.Key}: {attribute.Value}");
+                        }
+                    }
+                }
+
+                var resource = this.ParentProvider.GetResource();
+                if (resource != Resource.Empty)
+                {
+                    this.WriteLine("Resource associated with Activity:");
+                    foreach (var resourceAttribute in resource.Attributes)
+                    {
+                        this.WriteLine($"    {resourceAttribute.Key}: {resourceAttribute.Value}");
+                    }
+                }
+
+                this.WriteLine(string.Empty);
             }
 
-            return Task.FromResult(ExportResult.Success);
-        }
-
-        public override Task ShutdownAsync(CancellationToken cancellationToken)
-        {
-            return Task.CompletedTask;
+            return ExportResult.Success;
         }
     }
 }

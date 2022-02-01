@@ -1,4 +1,4 @@
-﻿// <copyright file="Batch.cs" company="OpenTelemetry Authors">
+// <copyright file="Batch.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,88 +13,74 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 // </copyright>
+
+#if NETSTANDARD2_0 || NET461
 using System;
-using System.Collections.Generic;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
+#endif
 using Thrift.Protocol;
 using Thrift.Protocol.Entities;
 
 namespace OpenTelemetry.Exporter.Jaeger.Implementation
 {
-    internal class Batch
+    internal sealed class Batch
     {
-        public Batch(Process process, IEnumerable<JaegerSpan> spans = null)
+        public Batch(Process process, TProtocol protocol)
         {
-            this.Process = process ?? throw new ArgumentNullException(nameof(process));
-            this.Spans = spans;
+            this.BatchBeginMessage = this.GenerateBeginMessage(process, protocol, out int spanCountPosition);
+            this.SpanCountPosition = spanCountPosition;
+            this.BatchEndMessage = this.GenerateEndMessage(protocol);
         }
 
-        public Process Process { get; }
+        public byte[] BatchBeginMessage { get; }
 
-        public IEnumerable<JaegerSpan> Spans { get; set; }
+        public int SpanCountPosition { get; set; }
 
-        internal List<BufferWriterMemory> SpanMessages { get; set; }
+        public byte[] BatchEndMessage { get; }
 
-        public override string ToString()
+        public int MinimumMessageSize => this.BatchBeginMessage.Length
+            + this.BatchEndMessage.Length;
+
+        private byte[] GenerateBeginMessage(Process process, TProtocol oprot, out int spanCountPosition)
         {
-            var sb = new StringBuilder("Batch(");
-            sb.Append(", Process: ");
-            sb.Append(this.Process?.ToString() ?? "<null>");
-            sb.Append(", Spans: ");
-            sb.Append(this.Spans);
-            sb.Append(")");
-            return sb.ToString();
+            var struc = new TStruct("Batch");
+
+            oprot.WriteStructBegin(struc);
+
+            var field = new TField
+            {
+                Name = "process",
+                Type = TType.Struct,
+                ID = 1,
+            };
+
+            oprot.WriteFieldBegin(field);
+            process.Write(oprot);
+            oprot.WriteFieldEnd();
+
+            field.Name = "spans";
+            field.Type = TType.List;
+            field.ID = 2;
+
+            oprot.WriteFieldBegin(field);
+
+            oprot.WriteListBegin(new TList(TType.Struct, 0), out spanCountPosition);
+
+            byte[] beginMessage = oprot.WrittenData.ToArray();
+            oprot.Clear();
+            return beginMessage;
         }
 
-        internal static async Task WriteAsync(byte[] processMessage, List<BufferWriterMemory> spanMessages, TProtocol oprot, CancellationToken cancellationToken)
+        private byte[] GenerateEndMessage(TProtocol oprot)
         {
-            oprot.IncrementRecursionDepth();
-            try
-            {
-                var struc = new TStruct("Batch");
+            oprot.WriteListEnd();
 
-                await oprot.WriteStructBeginAsync(struc, cancellationToken);
+            oprot.WriteFieldEnd();
+            oprot.WriteFieldStop();
+            oprot.WriteStructEnd();
 
-                var field = new TField
-                {
-                    Name = "process",
-                    Type = TType.Struct,
-                    ID = 1,
-                };
-
-                await oprot.WriteFieldBeginAsync(field, cancellationToken);
-                await oprot.Transport.WriteAsync(processMessage, cancellationToken);
-                await oprot.WriteFieldEndAsync(cancellationToken);
-
-                field.Name = "spans";
-                field.Type = TType.List;
-                field.ID = 2;
-
-                await oprot.WriteFieldBeginAsync(field, cancellationToken);
-                {
-                    await oprot.WriteListBeginAsync(new TList(TType.Struct, spanMessages?.Count ?? 0), cancellationToken);
-
-                    if (spanMessages != null)
-                    {
-                        foreach (var s in spanMessages)
-                        {
-                            await oprot.Transport.WriteAsync(s.BufferWriter.Buffer, s.Offset, s.Count, cancellationToken);
-                        }
-                    }
-
-                    await oprot.WriteListEndAsync(cancellationToken);
-                }
-
-                await oprot.WriteFieldEndAsync(cancellationToken);
-                await oprot.WriteFieldStopAsync(cancellationToken);
-                await oprot.WriteStructEndAsync(cancellationToken);
-            }
-            finally
-            {
-                oprot.DecrementRecursionDepth();
-            }
+            byte[] endMessage = oprot.WrittenData.ToArray();
+            oprot.Clear();
+            return endMessage;
         }
     }
 }

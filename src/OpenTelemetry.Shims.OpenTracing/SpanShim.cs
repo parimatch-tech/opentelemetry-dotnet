@@ -1,4 +1,4 @@
-﻿// <copyright file="SpanShim.cs" company="OpenTelemetry Authors">
+// <copyright file="SpanShim.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,12 +17,13 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using global::OpenTracing;
+using OpenTelemetry.Internal;
 using OpenTelemetry.Trace;
+using OpenTracing;
 
 namespace OpenTelemetry.Shims.OpenTracing
 {
-    public sealed class SpanShim : global::OpenTracing.ISpan
+    internal sealed class SpanShim : ISpan
     {
         /// <summary>
         /// The default event name if not specified.
@@ -45,13 +46,14 @@ namespace OpenTelemetry.Shims.OpenTracing
 
         public SpanShim(TelemetrySpan span)
         {
-            this.Span = span ?? throw new ArgumentNullException(nameof(span));
+            Guard.ThrowIfNull(span, nameof(span));
 
-            if (!this.Span.Context.IsValid)
+            if (!span.Context.IsValid)
             {
-                throw new ArgumentException(nameof(this.Span.Context));
+                throw new ArgumentException($"Invalid '{nameof(SpanContext)}'", nameof(span.Context));
             }
 
+            this.Span = span;
             this.spanContextShim = new SpanContextShim(this.Span.Context);
         }
 
@@ -73,113 +75,122 @@ namespace OpenTelemetry.Shims.OpenTracing
 
         /// <inheritdoc/>
         public string GetBaggageItem(string key)
-        {
-            if (key is null)
-            {
-                throw new ArgumentNullException(nameof(key));
-            }
-
-            return this.Context.GetBaggageItems().FirstOrDefault(kvp => kvp.Key.Equals(key)).Value;
-        }
+            => Baggage.GetBaggage(key);
 
         /// <inheritdoc/>
-        public global::OpenTracing.ISpan Log(DateTimeOffset timestamp, IEnumerable<KeyValuePair<string, object>> fields)
+        public ISpan Log(DateTimeOffset timestamp, IEnumerable<KeyValuePair<string, object>> fields)
         {
-            if (fields is null)
-            {
-                throw new ArgumentNullException(nameof(fields));
-            }
+            Guard.ThrowIfNull(fields, nameof(fields));
 
             var payload = ConvertToEventPayload(fields);
             var eventName = payload.Item1;
-            var eventAttributes = payload.Item2;
 
-            this.Span.AddEvent(timestamp == DateTimeOffset.MinValue
-                ? new Event(eventName, eventAttributes)
-                : new Event(eventName, timestamp, eventAttributes));
+            var spanAttributes = new SpanAttributes();
+            foreach (var field in payload.Item2)
+            {
+                switch (field.Value)
+                {
+                    case long value:
+                        spanAttributes.Add(field.Key, value);
+                        break;
+                    case long[] value:
+                        spanAttributes.Add(field.Key, value);
+                        break;
+                    case bool value:
+                        spanAttributes.Add(field.Key, value);
+                        break;
+                    case bool[] value:
+                        spanAttributes.Add(field.Key, value);
+                        break;
+                    case double value:
+                        spanAttributes.Add(field.Key, value);
+                        break;
+                    case double[] value:
+                        spanAttributes.Add(field.Key, value);
+                        break;
+                    case string value:
+                        spanAttributes.Add(field.Key, value);
+                        break;
+                    case string[] value:
+                        spanAttributes.Add(field.Key, value);
+                        break;
+
+                    default:
+                        break;
+                }
+            }
+
+            if (timestamp == DateTimeOffset.MinValue)
+            {
+                this.Span.AddEvent(eventName, spanAttributes);
+            }
+            else
+            {
+                this.Span.AddEvent(eventName, timestamp, spanAttributes);
+            }
 
             return this;
         }
 
         /// <inheritdoc/>
-        public global::OpenTracing.ISpan Log(IEnumerable<KeyValuePair<string, object>> fields)
+        public ISpan Log(IEnumerable<KeyValuePair<string, object>> fields)
         {
             return this.Log(DateTimeOffset.MinValue, fields);
         }
 
         /// <inheritdoc/>
-        public global::OpenTracing.ISpan Log(string @event)
+        public ISpan Log(string @event)
         {
-            if (@event is null)
-            {
-                throw new ArgumentNullException(nameof(@event));
-            }
+            Guard.ThrowIfNull(@event, nameof(@event));
 
             this.Span.AddEvent(@event);
             return this;
         }
 
         /// <inheritdoc/>
-        public global::OpenTracing.ISpan Log(DateTimeOffset timestamp, string @event)
+        public ISpan Log(DateTimeOffset timestamp, string @event)
         {
-            if (@event is null)
-            {
-                throw new ArgumentNullException(nameof(@event));
-            }
+            Guard.ThrowIfNull(@event, nameof(@event));
 
-            this.Span.AddEvent(new Trace.Event(@event, timestamp));
+            this.Span.AddEvent(@event, timestamp);
             return this;
         }
 
         /// <inheritdoc/>
-        public global::OpenTracing.ISpan SetBaggageItem(string key, string value)
+        public ISpan SetBaggageItem(string key, string value)
         {
-            if (key is null)
-            {
-                throw new ArgumentNullException(nameof(key));
-            }
-
-            // TODO Revisit once CorrelationContext is finalized
-            throw new NotImplementedException();
+            Baggage.SetBaggage(key, value);
+            return this;
         }
 
         /// <inheritdoc/>
-        public global::OpenTracing.ISpan SetOperationName(string operationName)
+        public ISpan SetOperationName(string operationName)
         {
-            if (operationName is null)
-            {
-                throw new ArgumentNullException(nameof(operationName));
-            }
+            Guard.ThrowIfNull(operationName, nameof(operationName));
 
             this.Span.UpdateName(operationName);
             return this;
         }
 
         /// <inheritdoc/>
-        public global::OpenTracing.ISpan SetTag(string key, string value)
+        public ISpan SetTag(string key, string value)
         {
-            if (key is null)
-            {
-                throw new ArgumentNullException(nameof(key));
-            }
+            Guard.ThrowIfNull(key, nameof(key));
 
             this.Span.SetAttribute(key, value);
             return this;
         }
 
         /// <inheritdoc/>
-        public global::OpenTracing.ISpan SetTag(string key, bool value)
+        public ISpan SetTag(string key, bool value)
         {
-            if (key is null)
-            {
-                throw new ArgumentNullException(nameof(key));
-            }
+            Guard.ThrowIfNull(key, nameof(key));
 
             // Special case the OpenTracing Error Tag
             // see https://opentracing.io/specification/conventions/
-            if (global::OpenTracing.Tag.Tags.Error.Key.Equals(key))
+            if (global::OpenTracing.Tag.Tags.Error.Key.Equals(key, StringComparison.Ordinal))
             {
-                this.Span.Status = value ? Trace.Status.Unknown : Trace.Status.Ok;
+                this.Span.SetStatus(value ? Status.Error : Status.Ok);
             }
             else
             {
@@ -190,37 +201,31 @@ namespace OpenTelemetry.Shims.OpenTracing
         }
 
         /// <inheritdoc/>
-        public global::OpenTracing.ISpan SetTag(string key, int value)
+        public ISpan SetTag(string key, int value)
         {
-            if (key is null)
-            {
-                throw new ArgumentNullException(nameof(key));
-            }
+            Guard.ThrowIfNull(key, nameof(key));
 
             this.Span.SetAttribute(key, value);
             return this;
         }
 
         /// <inheritdoc/>
-        public global::OpenTracing.ISpan SetTag(string key, double value)
+        public ISpan SetTag(string key, double value)
         {
-            if (key is null)
-            {
-                throw new ArgumentNullException(nameof(key));
-            }
+            Guard.ThrowIfNull(key, nameof(key));
 
             this.Span.SetAttribute(key, value);
             return this;
         }
 
         /// <inheritdoc/>
-        public global::OpenTracing.ISpan SetTag(global::OpenTracing.Tag.BooleanTag tag, bool value)
+        public ISpan SetTag(global::OpenTracing.Tag.BooleanTag tag, bool value)
         {
             return this.SetTag(tag?.Key, value);
         }
 
         /// <inheritdoc/>
-        public global::OpenTracing.ISpan SetTag(global::OpenTracing.Tag.IntOrStringTag tag, string value)
+        public ISpan SetTag(global::OpenTracing.Tag.IntOrStringTag tag, string value)
         {
             if (int.TryParse(value, out var result))
             {
@@ -231,13 +236,13 @@ namespace OpenTelemetry.Shims.OpenTracing
         }
 
         /// <inheritdoc/>
-        public global::OpenTracing.ISpan SetTag(global::OpenTracing.Tag.IntTag tag, int value)
+        public ISpan SetTag(global::OpenTracing.Tag.IntTag tag, int value)
         {
             return this.SetTag(tag?.Key, value);
         }
 
         /// <inheritdoc/>
-        public global::OpenTracing.ISpan SetTag(global::OpenTracing.Tag.StringTag tag, string value)
+        public ISpan SetTag(global::OpenTracing.Tag.StringTag tag, string value)
         {
             return this.SetTag(tag?.Key, value);
         }
@@ -266,7 +271,7 @@ namespace OpenTelemetry.Shims.OpenTracing
                     continue;
                 }
 
-                if (eventName == null && field.Key.Equals(LogFields.Event) && field.Value is string value)
+                if (eventName == null && field.Key.Equals(LogFields.Event, StringComparison.Ordinal) && field.Value is string value)
                 {
                     // This is meant to be the event name
                     eventName = value;

@@ -1,4 +1,4 @@
-﻿// <copyright file="ZPagesExporter.cs" company="OpenTelemetry Authors">
+// <copyright file="ZPagesExporter.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,19 +13,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 // </copyright>
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
-using OpenTelemetry.Trace.Export;
+
+using System.Diagnostics;
+using System.Timers;
+using OpenTelemetry.Exporter.ZPages.Implementation;
+using OpenTelemetry.Internal;
+using Timer = System.Timers.Timer;
 
 namespace OpenTelemetry.Exporter.ZPages
 {
     /// <summary>
     /// Implements ZPages exporter.
     /// </summary>
-    public class ZPagesExporter : SpanExporter
+    public class ZPagesExporter : BaseExporter<Activity>
     {
         internal readonly ZPagesExporterOptions Options;
+        private readonly Timer minuteTimer;
+        private readonly Timer hourTimer;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ZPagesExporter"/> class.
@@ -33,19 +37,28 @@ namespace OpenTelemetry.Exporter.ZPages
         /// <param name="options">Options for the exporter.</param>
         public ZPagesExporter(ZPagesExporterOptions options)
         {
+            Guard.ThrowIfNull(options?.RetentionTime, $"{nameof(options)}?.{nameof(options.RetentionTime)}");
+
+            ZPagesActivityTracker.RetentionTime = options.RetentionTime;
+
             this.Options = options;
+
+            // Create a timer with one minute interval
+            this.minuteTimer = new Timer(60000);
+            this.minuteTimer.Elapsed += new ElapsedEventHandler(ZPagesActivityTracker.PurgeCurrentMinuteData);
+            this.minuteTimer.Enabled = true;
+
+            // Create a timer with one hour interval
+            this.hourTimer = new Timer(3600000);
+            this.hourTimer.Elapsed += new ElapsedEventHandler(ZPagesActivityTracker.PurgeCurrentHourData);
+            this.hourTimer.Enabled = true;
         }
 
         /// <inheritdoc />
-        public override Task<ExportResult> ExportAsync(IEnumerable<SpanData> batch, CancellationToken cancellationToken)
+        public override ExportResult Export(in Batch<Activity> batch)
         {
-            return Task.FromResult(ExportResult.Success);
-        }
-
-        /// <inheritdoc />
-        public override Task ShutdownAsync(CancellationToken cancellationToken)
-        {
-            return Task.FromResult(ExportResult.Success);
+            // var spanDatas = batch as SpanData[] ?? batch.ToArray();
+            return ExportResult.Success;
         }
     }
 }

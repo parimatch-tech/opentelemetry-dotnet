@@ -1,4 +1,4 @@
-﻿// <copyright file="TracerShim.cs" company="OpenTelemetry Authors">
+// <copyright file="TracerShim.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,23 +14,25 @@
 // limitations under the License.
 // </copyright>
 
-using System;
 using System.Collections.Generic;
-using global::OpenTracing.Propagation;
 using OpenTelemetry.Context.Propagation;
+using OpenTelemetry.Internal;
+using OpenTracing.Propagation;
 
 namespace OpenTelemetry.Shims.OpenTracing
 {
     public class TracerShim : global::OpenTracing.ITracer
     {
         private readonly Trace.Tracer tracer;
-        private readonly ITextFormat textFormat;
+        private readonly TextMapPropagator propagator;
 
-        public TracerShim(Trace.Tracer tracer, ITextFormat textFormat)
+        public TracerShim(Trace.Tracer tracer, TextMapPropagator textFormat)
         {
-            this.tracer = tracer ?? throw new ArgumentNullException(nameof(tracer));
-            this.textFormat = textFormat ?? throw new ArgumentNullException(nameof(textFormat));
+            Guard.ThrowIfNull(tracer, nameof(tracer));
+            Guard.ThrowIfNull(textFormat, nameof(textFormat));
 
+            this.tracer = tracer;
+            this.propagator = textFormat;
             this.ScopeManager = new ScopeManagerShim(this.tracer);
         }
 
@@ -47,19 +49,12 @@ namespace OpenTelemetry.Shims.OpenTracing
         }
 
         /// <inheritdoc/>
-        public global::OpenTracing.ISpanContext Extract<TCarrier>(global::OpenTracing.Propagation.IFormat<TCarrier> format, TCarrier carrier)
+        public global::OpenTracing.ISpanContext Extract<TCarrier>(IFormat<TCarrier> format, TCarrier carrier)
         {
-            if (format is null)
-            {
-                throw new ArgumentNullException(nameof(format));
-            }
+            Guard.ThrowIfNull(format, nameof(format));
+            Guard.ThrowIfNull(carrier, nameof(carrier));
 
-            if (carrier == null)
-            {
-                throw new ArgumentNullException(nameof(carrier));
-            }
-
-            Trace.SpanContext spanContext = default;
+            PropagationContext propagationContext = default;
 
             if ((format == BuiltinFormats.TextMap || format == BuiltinFormats.HttpHeaders) && carrier is ITextMap textMapCarrier)
             {
@@ -70,7 +65,7 @@ namespace OpenTelemetry.Shims.OpenTracing
                     carrierMap.Add(entry.Key, new[] { entry.Value });
                 }
 
-                IEnumerable<string> GetCarrierKeyValue(Dictionary<string, IEnumerable<string>> source, string key)
+                static IEnumerable<string> GetCarrierKeyValue(Dictionary<string, IEnumerable<string>> source, string key)
                 {
                     if (key == null || !source.TryGetValue(key, out var value))
                     {
@@ -80,41 +75,34 @@ namespace OpenTelemetry.Shims.OpenTracing
                     return value;
                 }
 
-                spanContext = this.textFormat.Extract(carrierMap, GetCarrierKeyValue);
+                propagationContext = this.propagator.Extract(propagationContext, carrierMap, GetCarrierKeyValue);
             }
 
-            return !spanContext.IsValid ? null : new SpanContextShim(spanContext);
+            // TODO:
+            //  Not sure what to do here. Really, Baggage should be returned and not set until this ISpanContext is turned into a live Span.
+            //  But that code doesn't seem to exist.
+            // Baggage.Current = propagationContext.Baggage;
+
+            return !propagationContext.ActivityContext.IsValid() ? null : new SpanContextShim(new Trace.SpanContext(propagationContext.ActivityContext));
         }
 
         /// <inheritdoc/>
         public void Inject<TCarrier>(
             global::OpenTracing.ISpanContext spanContext,
-            global::OpenTracing.Propagation.IFormat<TCarrier> format,
+            IFormat<TCarrier> format,
             TCarrier carrier)
         {
-            if (spanContext is null)
-            {
-                throw new ArgumentNullException(nameof(spanContext));
-            }
-
-            if (!(spanContext is SpanContextShim shim))
-            {
-                throw new ArgumentException("context is not a valid SpanContextShim object");
-            }
-
-            if (format is null)
-            {
-                throw new ArgumentNullException(nameof(format));
-            }
-
-            if (carrier == null)
-            {
-                throw new ArgumentNullException(nameof(carrier));
-            }
+            Guard.ThrowIfNull(spanContext, nameof(spanContext));
+            var shim = Guard.ThrowIfNotOfType<SpanContextShim>(spanContext, nameof(spanContext));
+            Guard.ThrowIfNull(format, nameof(format));
+            Guard.ThrowIfNull(carrier, nameof(carrier));
 
             if ((format == BuiltinFormats.TextMap || format == BuiltinFormats.HttpHeaders) && carrier is ITextMap textMapCarrier)
             {
-                this.textFormat.Inject(shim.SpanContext, textMapCarrier, (instrumentation, key, value) => instrumentation.Set(key, value));
+                this.propagator.Inject(
+                    new PropagationContext(shim.SpanContext, Baggage.Current),
+                    textMapCarrier,
+                    (instrumentation, key, value) => instrumentation.Set(key, value));
             }
         }
     }

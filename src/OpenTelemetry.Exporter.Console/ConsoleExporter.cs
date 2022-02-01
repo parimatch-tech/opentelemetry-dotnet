@@ -1,4 +1,4 @@
-﻿// <copyright file="ConsoleExporter.cs" company="OpenTelemetry Authors">
+// <copyright file="ConsoleExporter.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,44 +14,29 @@
 // limitations under the License.
 // </copyright>
 
-using System.Collections.Generic;
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Threading;
-using System.Threading.Tasks;
-using OpenTelemetry.Trace.Export;
-
-namespace OpenTelemetry.Exporter.Console
+namespace OpenTelemetry.Exporter
 {
-    public class ConsoleExporter : SpanExporter
+    public abstract class ConsoleExporter<T> : BaseExporter<T>
+        where T : class
     {
-        private readonly JsonSerializerOptions serializerOptions;
+        private readonly ConsoleExporterOptions options;
 
-        public ConsoleExporter(ConsoleExporterOptions options)
+        protected ConsoleExporter(ConsoleExporterOptions options)
         {
-            this.serializerOptions = new JsonSerializerOptions
-            {
-                WriteIndented = options.Pretty,
-            };
-
-            this.serializerOptions.Converters.Add(new JsonStringEnumConverter());
-            this.serializerOptions.Converters.Add(new ActivitySpanIdConverter());
-            this.serializerOptions.Converters.Add(new ActivityTraceIdConverter());
+            this.options = options ?? new ConsoleExporterOptions();
         }
 
-        public override Task<ExportResult> ExportAsync(IEnumerable<SpanData> batch, CancellationToken cancellationToken)
+        protected void WriteLine(string message)
         {
-            foreach (var span in batch)
+            if (this.options.Targets.HasFlag(ConsoleExporterOutputTargets.Console))
             {
-                System.Console.WriteLine(JsonSerializer.Serialize(span, this.serializerOptions));
+                System.Console.WriteLine(message);
             }
 
-            return Task.FromResult(ExportResult.Success);
-        }
-
-        public override Task ShutdownAsync(CancellationToken cancellationToken)
-        {
-            return Task.CompletedTask;
+            if (this.options.Targets.HasFlag(ConsoleExporterOutputTargets.Debug))
+            {
+                System.Diagnostics.Trace.WriteLine(message);
+            }
         }
     }
 }

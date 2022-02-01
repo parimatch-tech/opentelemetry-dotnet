@@ -1,4 +1,4 @@
-﻿// <copyright file="Resource.cs" company="OpenTelemetry Authors">
+// <copyright file="Resource.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,7 +14,9 @@
 // limitations under the License.
 // </copyright>
 
+using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using OpenTelemetry.Internal;
 
@@ -22,24 +24,18 @@ namespace OpenTelemetry.Resources
 {
     /// <summary>
     /// <see cref="Resource"/> represents a resource, which captures identifying information about the entities
-    /// for which signals (stats or traces) are reported.
+    /// for which telemetry is reported.
+    /// Use <see cref="ResourceBuilder"/> to construct resource instances.
     /// </summary>
     public class Resource
     {
-        public const string ServiceNameKey = "service.name";
-        public const string ServiceNamespaceKey = "service.namespace";
-        public const string ServiceInstanceIdKey = "service.instance.id";
-        public const string ServiceVersionKey = "service.version";
-        public const string LibraryNameKey = "name";
-        public const string LibraryVersionKey = "version";
-
-        // this implementation follows https://github.com/open-telemetry/opentelemetry-specification/blob/master/specification/sdk-resource.md
+        // This implementation follows https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/resource/sdk.md
 
         /// <summary>
         /// Initializes a new instance of the <see cref="Resource"/> class.
         /// </summary>
-        /// <param name="attributes">An <see cref="IDictionary{String, Object}"/> of attributes that describe the resource.</param>
-        public Resource(IEnumerable<KeyValuePair<string, object>> attributes)
+        /// <param name="attributes">An <see cref="IEnumerable{T}"/> of attributes that describe the resource.</param>
+        internal Resource(IEnumerable<KeyValuePair<string, object>> attributes)
         {
             if (attributes == null)
             {
@@ -63,31 +59,31 @@ namespace OpenTelemetry.Resources
         public IEnumerable<KeyValuePair<string, object>> Attributes { get; }
 
         /// <summary>
-        /// Returns a new, merged <see cref="Resource"/> by merging the current <see cref="Resource"/> with the.
-        /// <code>other</code> <see cref="Resource"/>. In case of a collision the current <see cref="Resource"/> takes precedence.
+        /// Returns a new, merged <see cref="Resource"/> by merging the old <see cref="Resource"/> with the
+        /// <c>other</c> <see cref="Resource"/>. In case of a collision the other <see cref="Resource"/> takes precedence.
         /// </summary>
-        /// <param name="other">The <see cref="Resource"/> that will be merged with. <code>this</code>.</param>
+        /// <param name="other">The <see cref="Resource"/> that will be merged with <c>this</c>.</param>
         /// <returns><see cref="Resource"/>.</returns>
         public Resource Merge(Resource other)
         {
             var newAttributes = new Dictionary<string, object>();
 
-            foreach (var attribute in this.Attributes)
-            {
-                if (!newAttributes.TryGetValue(attribute.Key, out var value) || (value is string strValue && string.IsNullOrEmpty(strValue)))
-                {
-                    newAttributes[attribute.Key] = attribute.Value;
-                }
-            }
-
             if (other != null)
             {
                 foreach (var attribute in other.Attributes)
                 {
-                    if (!newAttributes.TryGetValue(attribute.Key, out var value) || (value is string strValue && string.IsNullOrEmpty(strValue)))
+                    if (!newAttributes.TryGetValue(attribute.Key, out var value))
                     {
                         newAttributes[attribute.Key] = attribute.Value;
                     }
+                }
+            }
+
+            foreach (var attribute in this.Attributes)
+            {
+                if (!newAttributes.TryGetValue(attribute.Key, out var value))
+                {
+                    newAttributes[attribute.Key] = attribute.Value;
                 }
             }
 
@@ -96,9 +92,7 @@ namespace OpenTelemetry.Resources
 
         private static KeyValuePair<string, object> SanitizeAttribute(KeyValuePair<string, object> attribute)
         {
-            string sanitizedKey = null;
-            object sanitizedValue = null;
-
+            string sanitizedKey;
             if (attribute.Key == null)
             {
                 OpenTelemetrySdkEventSource.Log.InvalidArgument("Create resource", "attribute key", "Attribute key should be non-null string.");
@@ -109,27 +103,32 @@ namespace OpenTelemetry.Resources
                 sanitizedKey = attribute.Key;
             }
 
-            if (!IsValidValue(attribute.Value))
-            {
-                OpenTelemetrySdkEventSource.Log.InvalidArgument("Create resource", "attribute value", "Attribute value should be a non-null string, long, bool or double.");
-                sanitizedValue = string.Empty;
-            }
-            else
-            {
-                sanitizedValue = attribute.Value;
-            }
-
+            var sanitizedValue = SanitizeValue(attribute.Value, sanitizedKey);
             return new KeyValuePair<string, object>(sanitizedKey, sanitizedValue);
         }
 
-        private static bool IsValidValue(object value)
+        private static object SanitizeValue(object value, string keyName)
         {
-            if (value != null && (value is string || value is bool || value is long || value is double))
-            {
-                return true;
-            }
+            Guard.ThrowIfNull(keyName, nameof(keyName));
 
-            return false;
+            return value switch
+            {
+                string => value,
+                bool => value,
+                double => value,
+                long => value,
+                string[] => value,
+                bool[] => value,
+                double[] => value,
+                long[] => value,
+                int => Convert.ToInt64(value),
+                short => Convert.ToInt64(value),
+                float => Convert.ToDouble(value, CultureInfo.InvariantCulture),
+                int[] v => Array.ConvertAll(v, Convert.ToInt64),
+                short[] v => Array.ConvertAll(v, Convert.ToInt64),
+                float[] v => Array.ConvertAll(v, f => Convert.ToDouble(f, CultureInfo.InvariantCulture)),
+                _ => throw new ArgumentException("Attribute value type is not an accepted primitive", keyName),
+            };
         }
     }
 }

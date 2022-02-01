@@ -1,4 +1,4 @@
-﻿// <copyright file="ZipkinEndpoint.cs" company="OpenTelemetry Authors">
+// <copyright file="ZipkinEndpoint.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,6 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 // </copyright>
+
+using System.Collections.Generic;
 using System.Text.Json;
 
 namespace OpenTelemetry.Exporter.Zipkin.Implementation
@@ -20,7 +22,7 @@ namespace OpenTelemetry.Exporter.Zipkin.Implementation
     internal class ZipkinEndpoint
     {
         public ZipkinEndpoint(string serviceName)
-            : this(serviceName, null, null, null)
+            : this(serviceName, null, null, null, null)
         {
         }
 
@@ -28,12 +30,14 @@ namespace OpenTelemetry.Exporter.Zipkin.Implementation
             string serviceName,
             string ipv4,
             string ipv6,
-            int? port)
+            int? port,
+            Dictionary<string, object> tags)
         {
             this.ServiceName = serviceName;
             this.Ipv4 = ipv4;
             this.Ipv6 = ipv6;
             this.Port = port;
+            this.Tags = tags;
         }
 
         public string ServiceName { get; }
@@ -44,8 +48,19 @@ namespace OpenTelemetry.Exporter.Zipkin.Implementation
 
         public int? Port { get; }
 
+        public Dictionary<string, object> Tags { get; }
+
         public static ZipkinEndpoint Create(string serviceName)
         {
+            return new ZipkinEndpoint(serviceName);
+        }
+
+        public static ZipkinEndpoint Create((string Name, int Port) serviceNameAndPort)
+        {
+            var serviceName = serviceNameAndPort.Port == default
+                ? serviceNameAndPort.Name
+                : $"{serviceNameAndPort.Name}:{serviceNameAndPort.Port}";
+
             return new ZipkinEndpoint(serviceName);
         }
 
@@ -55,7 +70,8 @@ namespace OpenTelemetry.Exporter.Zipkin.Implementation
                 serviceName,
                 this.Ipv4,
                 this.Ipv6,
-                this.Port);
+                this.Port,
+                this.Tags);
         }
 
         public void Write(Utf8JsonWriter writer)
@@ -64,22 +80,22 @@ namespace OpenTelemetry.Exporter.Zipkin.Implementation
 
             if (this.ServiceName != null)
             {
-                writer.WriteString("serviceName", this.ServiceName);
+                writer.WriteString(ZipkinSpanJsonHelper.ServiceNamePropertyName, this.ServiceName);
             }
 
             if (this.Ipv4 != null)
             {
-                writer.WriteString("ipv4", this.Ipv4);
+                writer.WriteString(ZipkinSpanJsonHelper.Ipv4PropertyName, this.Ipv4);
             }
 
             if (this.Ipv6 != null)
             {
-                writer.WriteString("ipv6", this.Ipv6);
+                writer.WriteString(ZipkinSpanJsonHelper.Ipv6PropertyName, this.Ipv6);
             }
 
             if (this.Port.HasValue)
             {
-                writer.WriteNumber("port", this.Port.Value);
+                writer.WriteNumber(ZipkinSpanJsonHelper.PortPropertyName, this.Port.Value);
             }
 
             writer.WriteEndObject();

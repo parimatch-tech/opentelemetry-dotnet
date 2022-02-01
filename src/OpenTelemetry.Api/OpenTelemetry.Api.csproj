@@ -1,25 +1,21 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFrameworks>net45;netstandard2.0</TargetFrameworks>
-    <Description>OpenTelemetry .NET instrumentation API.</Description>
+    <TargetFrameworks>netstandard2.0;net461</TargetFrameworks>
+    <Description>OpenTelemetry .NET API</Description>
     <RootNamespace>OpenTelemetry</RootNamespace>
-    <DefineConstants>$(DefineConstants);API</DefineConstants>
+
+    <NoWarn>$(NoWarn),CS0618</NoWarn>
+    <MinVerTagPrefix>core-</MinVerTagPrefix>
   </PropertyGroup>
-  <ItemGroup>
-    <Compile Remove="Trace\Internal\**" />
-    <EmbeddedResource Remove="Trace\Internal\**" />
-    <None Remove="Trace\Internal\**" />
-  </ItemGroup>
 
-  <!--
-  Uncomment for development. This will disable the verification that every public method needs to be documented.
-
-  <PropertyGroup>
-    <NoWarn>$(NoWarn),1591</NoWarn>
+  <!--Do not run ApiCompat for net461 as this is newly added. There is no existing contract for net461 against which we could compare the implementation.
+  Remove this property once we have released a stable net461 version.-->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net461'">
+    <RunApiCompat>false</RunApiCompat>
   </PropertyGroup>
-  -->
-  <ItemGroup>
-    <PackageReference Include="System.Diagnostics.DiagnosticSource" Version="5.0.0-preview.4.20251.6" />
-  </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="System.Diagnostics.DiagnosticSource" Version="$(SystemDiagnosticSourcePkgVer)" />
+    <PackageReference Include="System.Reflection.Emit.Lightweight" Version="$(SystemReflectionEmitLightweightPkgVer)" />
+  </ItemGroup>
 </Project>

@@ -1,4 +1,4 @@
-﻿// <copyright file="ScopeManagerShim.cs" company="OpenTelemetry Authors">
+// <copyright file="ScopeManagerShim.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,25 +16,30 @@
 
 using System;
 using System.Runtime.CompilerServices;
+#if DEBUG
 using System.Threading;
-using global::OpenTracing;
+#endif
+using OpenTelemetry.Internal;
 using OpenTelemetry.Trace;
+using OpenTracing;
 
 namespace OpenTelemetry.Shims.OpenTracing
 {
-    public sealed class ScopeManagerShim : IScopeManager
+    internal sealed class ScopeManagerShim : IScopeManager
     {
-        private static readonly ConditionalWeakTable<Trace.TelemetrySpan, global::OpenTracing.IScope> SpanScopeTable = new ConditionalWeakTable<Trace.TelemetrySpan, global::OpenTracing.IScope>();
+        private static readonly ConditionalWeakTable<TelemetrySpan, IScope> SpanScopeTable = new ConditionalWeakTable<TelemetrySpan, IScope>();
 
-        private readonly Trace.Tracer tracer;
+        private readonly Tracer tracer;
 
 #if DEBUG
         private int spanScopeTableCount;
 #endif
 
-        public ScopeManagerShim(Trace.Tracer tracer)
+        public ScopeManagerShim(Tracer tracer)
         {
-            this.tracer = tracer ?? throw new ArgumentNullException(nameof(tracer));
+            Guard.ThrowIfNull(tracer, nameof(tracer));
+
+            this.tracer = tracer;
         }
 
 #if DEBUG
@@ -42,11 +47,11 @@ namespace OpenTelemetry.Shims.OpenTracing
 #endif
 
         /// <inheritdoc/>
-        public global::OpenTracing.IScope Active
+        public IScope Active
         {
             get
             {
-                var currentSpan = this.tracer.CurrentSpan;
+                var currentSpan = Tracer.CurrentSpan;
                 if (currentSpan == null || !currentSpan.Context.IsValid)
                 {
                     return null;
@@ -62,14 +67,11 @@ namespace OpenTelemetry.Shims.OpenTracing
         }
 
         /// <inheritdoc/>
-        public global::OpenTracing.IScope Activate(ISpan span, bool finishSpanOnDispose)
+        public IScope Activate(ISpan span, bool finishSpanOnDispose)
         {
-            if (!(span is SpanShim shim))
-            {
-                throw new ArgumentException("span is not a valid SpanShim object");
-            }
+            var shim = Guard.ThrowIfNotOfType<SpanShim>(span, nameof(span));
 
-            var scope = this.tracer.WithSpan(shim.Span, false);
+            var scope = Tracer.WithSpan(shim.Span);
 
             var instrumentation = new ScopeInstrumentation(
                 shim.Span,
@@ -93,7 +95,7 @@ namespace OpenTelemetry.Shims.OpenTracing
             return instrumentation;
         }
 
-        private class ScopeInstrumentation : global::OpenTracing.IScope
+        private class ScopeInstrumentation : IScope
         {
             private readonly Action disposeAction;
 

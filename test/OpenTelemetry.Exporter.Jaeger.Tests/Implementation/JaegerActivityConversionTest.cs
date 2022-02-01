@@ -1,4 +1,4 @@
-﻿// <copyright file="JaegerActivityConversionTest.cs" company="OpenTelemetry Authors">
+// <copyright file="JaegerActivityConversionTest.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,11 +17,12 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using OpenTelemetry.Exporter.Jaeger.Implementation;
+using OpenTelemetry.Internal;
 using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using Xunit;
 
-namespace OpenTelemetry.Exporter.Jaeger.Tests.Implementation
+namespace OpenTelemetry.Exporter.Jaeger.Implementation.Tests
 {
     public class JaegerActivityConversionTest
     {
@@ -33,17 +34,18 @@ namespace OpenTelemetry.Exporter.Jaeger.Tests.Implementation
             var listener = new ActivityListener
             {
                 ShouldListenTo = _ => true,
-                GetRequestedDataUsingParentId = (ref ActivityCreationOptions<string> options) => ActivityDataRequest.AllData,
-                GetRequestedDataUsingContext = (ref ActivityCreationOptions<ActivityContext> options) => ActivityDataRequest.AllData,
+                Sample = (ref ActivityCreationOptions<ActivityContext> options) => ActivitySamplingResult.AllData,
             };
 
             ActivitySource.AddActivityListener(listener);
         }
 
-        [Fact]
-        public void JaegerActivityConverterTest_ConvertActivityToJaegerSpan_AllPropertiesSet()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void JaegerActivityConverterTest_ConvertActivityToJaegerSpan_AllPropertiesSet(bool isRootSpan)
         {
-            var activity = CreateTestActivity();
+            var activity = CreateTestActivity(isRootSpan: isRootSpan);
             var traceIdAsInt = new Int128(activity.Context.TraceId);
             var spanIdAsInt = new Int128(activity.Context.SpanId);
             var linkTraceIdAsInt = new Int128(activity.Links.Single().Context.TraceId);
@@ -69,7 +71,7 @@ namespace OpenTelemetry.Exporter.Jaeger.Tests.Implementation
             Assert.Equal(0x1, jaegerSpan.Flags);
 
             Assert.Equal(activity.StartTimeUtc.ToEpochMicroseconds(), jaegerSpan.StartTime);
-            Assert.Equal((long)(activity.Duration.TotalMilliseconds * 1000), jaegerSpan.Duration);
+            Assert.Equal(this.TimeSpanToMicroseconds(activity.Duration), jaegerSpan.Duration);
 
             var tags = jaegerSpan.Tags.ToArray();
             var tag = tags[0];
@@ -77,36 +79,42 @@ namespace OpenTelemetry.Exporter.Jaeger.Tests.Implementation
             Assert.Equal("stringKey", tag.Key);
             Assert.Equal("value", tag.VStr);
             tag = tags[1];
-            Assert.Equal(JaegerTagType.STRING, tag.VType);
+            Assert.Equal(JaegerTagType.LONG, tag.VType);
             Assert.Equal("longKey", tag.Key);
-            Assert.Equal("1", tag.VStr);
+            Assert.Equal(1, tag.VLong);
             tag = tags[2];
-            Assert.Equal(JaegerTagType.STRING, tag.VType);
+            Assert.Equal(JaegerTagType.LONG, tag.VType);
             Assert.Equal("longKey2", tag.Key);
-            Assert.Equal("1", tag.VStr);
+            Assert.Equal(1, tag.VLong);
             tag = tags[3];
-            Assert.Equal(JaegerTagType.STRING, tag.VType);
+            Assert.Equal(JaegerTagType.DOUBLE, tag.VType);
             Assert.Equal("doubleKey", tag.Key);
-            Assert.Equal("1", tag.VStr);
+            Assert.Equal(1, tag.VDouble);
             tag = tags[4];
-            Assert.Equal(JaegerTagType.STRING, tag.VType);
+            Assert.Equal(JaegerTagType.DOUBLE, tag.VType);
             Assert.Equal("doubleKey2", tag.Key);
-            Assert.Equal("1", tag.VStr);
+            Assert.Equal(1, tag.VDouble);
             tag = tags[5];
-            Assert.Equal(JaegerTagType.STRING, tag.VType);
+            Assert.Equal(JaegerTagType.BOOL, tag.VType);
             Assert.Equal("boolKey", tag.Key);
-            Assert.Equal("True", tag.VStr);
+            Assert.Equal(true, tag.VBool);
 
             var logs = jaegerSpan.Logs.ToArray();
             var jaegerLog = logs[0];
             Assert.Equal(activity.Events.First().Timestamp.ToEpochMicroseconds(), jaegerLog.Timestamp);
-            Assert.Equal(2, jaegerLog.Fields.Count());
+            Assert.Equal(4, jaegerLog.Fields.Count());
             var eventFields = jaegerLog.Fields.ToArray();
             var eventField = eventFields[0];
             Assert.Equal("key", eventField.Key);
             Assert.Equal("value", eventField.VStr);
             eventField = eventFields[1];
-            Assert.Equal("message", eventField.Key);
+            Assert.Equal("string_array", eventField.Key);
+            Assert.Equal("a", eventField.VStr);
+            eventField = eventFields[2];
+            Assert.Equal("string_array", eventField.Key);
+            Assert.Equal("b", eventField.VStr);
+            eventField = eventFields[3];
+            Assert.Equal("event", eventField.Key);
             Assert.Equal("Event1", eventField.VStr);
 
             Assert.Equal(activity.Events.First().Timestamp.ToEpochMicroseconds(), jaegerLog.Timestamp);
@@ -118,12 +126,12 @@ namespace OpenTelemetry.Exporter.Jaeger.Tests.Implementation
             Assert.Equal("key", eventField.Key);
             Assert.Equal("value", eventField.VStr);
             eventField = eventFields[1];
-            Assert.Equal("message", eventField.Key);
+            Assert.Equal("event", eventField.Key);
             Assert.Equal("Event2", eventField.VStr);
         }
 
         [Fact]
-        public void JaegerSpanConverterTest_ConvertSpanToJaegerSpan_NoAttributes()
+        public void JaegerActivityConverterTest_ConvertActivityToJaegerSpan_NoAttributes()
         {
             var activity = CreateTestActivity(setAttributes: false);
             var traceIdAsInt = new Int128(activity.Context.TraceId);
@@ -151,7 +159,7 @@ namespace OpenTelemetry.Exporter.Jaeger.Tests.Implementation
             Assert.Equal(0x1, jaegerSpan.Flags);
 
             Assert.Equal(activity.StartTimeUtc.ToEpochMicroseconds(), jaegerSpan.StartTime);
-            Assert.Equal((long)(activity.Duration.TotalMilliseconds * 1000), jaegerSpan.Duration);
+            Assert.Equal(this.TimeSpanToMicroseconds(activity.Duration), jaegerSpan.Duration);
 
             // 2 tags: span.kind & library.name.
             Assert.Equal(2, jaegerSpan.Tags.Count);
@@ -159,13 +167,13 @@ namespace OpenTelemetry.Exporter.Jaeger.Tests.Implementation
             var logs = jaegerSpan.Logs.ToArray();
             var jaegerLog = logs[0];
             Assert.Equal(activity.Events.First().Timestamp.ToEpochMicroseconds(), jaegerLog.Timestamp);
-            Assert.Equal(2, jaegerLog.Fields.Count());
+            Assert.Equal(4, jaegerLog.Fields.Count());
             var eventFields = jaegerLog.Fields.ToArray();
             var eventField = eventFields[0];
             Assert.Equal("key", eventField.Key);
             Assert.Equal("value", eventField.VStr);
-            eventField = eventFields[1];
-            Assert.Equal("message", eventField.Key);
+            eventField = eventFields[3];
+            Assert.Equal("event", eventField.Key);
             Assert.Equal("Event1", eventField.VStr);
 
             Assert.Equal(activity.Events.First().Timestamp.ToEpochMicroseconds(), jaegerLog.Timestamp);
@@ -177,12 +185,12 @@ namespace OpenTelemetry.Exporter.Jaeger.Tests.Implementation
             Assert.Equal("key", eventField.Key);
             Assert.Equal("value", eventField.VStr);
             eventField = eventFields[1];
-            Assert.Equal("message", eventField.Key);
+            Assert.Equal("event", eventField.Key);
             Assert.Equal("Event2", eventField.VStr);
         }
 
         [Fact]
-        public void JaegerSpanConverterTest_ConvertSpanToJaegerSpan_NoEvents()
+        public void JaegerActivityConverterTest_ConvertActivityToJaegerSpan_NoEvents()
         {
             var activity = CreateTestActivity(addEvents: false);
             var traceIdAsInt = new Int128(activity.Context.TraceId);
@@ -210,7 +218,7 @@ namespace OpenTelemetry.Exporter.Jaeger.Tests.Implementation
             Assert.Equal(0x1, jaegerSpan.Flags);
 
             Assert.Equal(activity.StartTimeUtc.ToEpochMicroseconds(), jaegerSpan.StartTime);
-            Assert.Equal(activity.Duration.TotalMilliseconds * 1000, jaegerSpan.Duration);
+            Assert.Equal(this.TimeSpanToMicroseconds(activity.Duration), jaegerSpan.Duration);
 
             var tags = jaegerSpan.Tags.ToArray();
             var tag = tags[0];
@@ -218,31 +226,31 @@ namespace OpenTelemetry.Exporter.Jaeger.Tests.Implementation
             Assert.Equal("stringKey", tag.Key);
             Assert.Equal("value", tag.VStr);
             tag = tags[1];
-            Assert.Equal(JaegerTagType.STRING, tag.VType);
+            Assert.Equal(JaegerTagType.LONG, tag.VType);
             Assert.Equal("longKey", tag.Key);
-            Assert.Equal("1", tag.VStr);
+            Assert.Equal(1, tag.VLong);
             tag = tags[2];
-            Assert.Equal(JaegerTagType.STRING, tag.VType);
+            Assert.Equal(JaegerTagType.LONG, tag.VType);
             Assert.Equal("longKey2", tag.Key);
-            Assert.Equal("1", tag.VStr);
+            Assert.Equal(1, tag.VLong);
             tag = tags[3];
-            Assert.Equal(JaegerTagType.STRING, tag.VType);
+            Assert.Equal(JaegerTagType.DOUBLE, tag.VType);
             Assert.Equal("doubleKey", tag.Key);
-            Assert.Equal("1", tag.VStr);
+            Assert.Equal(1, tag.VDouble);
             tag = tags[4];
-            Assert.Equal(JaegerTagType.STRING, tag.VType);
+            Assert.Equal(JaegerTagType.DOUBLE, tag.VType);
             Assert.Equal("doubleKey2", tag.Key);
-            Assert.Equal("1", tag.VStr);
+            Assert.Equal(1, tag.VDouble);
             tag = tags[5];
-            Assert.Equal(JaegerTagType.STRING, tag.VType);
+            Assert.Equal(JaegerTagType.BOOL, tag.VType);
             Assert.Equal("boolKey", tag.Key);
-            Assert.Equal("True", tag.VStr);
+            Assert.Equal(true, tag.VBool);
         }
 
         [Fact]
-        public void JaegerSpanConverterTest_ConvertSpanToJaegerSpan_NoLinks()
+        public void JaegerActivityConverterTest_ConvertActivityToJaegerSpan_NoLinks()
         {
-            var activity = CreateTestActivity(addLinks: false);
+            var activity = CreateTestActivity(addLinks: false, ticksToAdd: 8000);
             var traceIdAsInt = new Int128(activity.Context.TraceId);
             var spanIdAsInt = new Int128(activity.Context.SpanId);
 
@@ -261,7 +269,7 @@ namespace OpenTelemetry.Exporter.Jaeger.Tests.Implementation
             Assert.Equal(0x1, jaegerSpan.Flags);
 
             Assert.Equal(activity.StartTimeUtc.ToEpochMicroseconds(), jaegerSpan.StartTime);
-            Assert.Equal(activity.Duration.TotalMilliseconds * 1000, jaegerSpan.Duration);
+            Assert.Equal(this.TimeSpanToMicroseconds(activity.Duration), jaegerSpan.Duration);
 
             var tags = jaegerSpan.Tags.ToArray();
             var tag = tags[0];
@@ -269,25 +277,45 @@ namespace OpenTelemetry.Exporter.Jaeger.Tests.Implementation
             Assert.Equal("stringKey", tag.Key);
             Assert.Equal("value", tag.VStr);
             tag = tags[1];
-            Assert.Equal(JaegerTagType.STRING, tag.VType);
+            Assert.Equal(JaegerTagType.LONG, tag.VType);
             Assert.Equal("longKey", tag.Key);
-            Assert.Equal("1", tag.VStr);
+            Assert.Equal(1, tag.VLong);
             tag = tags[2];
-            Assert.Equal(JaegerTagType.STRING, tag.VType);
+            Assert.Equal(JaegerTagType.LONG, tag.VType);
             Assert.Equal("longKey2", tag.Key);
-            Assert.Equal("1", tag.VStr);
+            Assert.Equal(1, tag.VLong);
             tag = tags[3];
-            Assert.Equal(JaegerTagType.STRING, tag.VType);
+            Assert.Equal(JaegerTagType.DOUBLE, tag.VType);
             Assert.Equal("doubleKey", tag.Key);
-            Assert.Equal("1", tag.VStr);
+            Assert.Equal(1, tag.VDouble);
             tag = tags[4];
-            Assert.Equal(JaegerTagType.STRING, tag.VType);
+            Assert.Equal(JaegerTagType.DOUBLE, tag.VType);
             Assert.Equal("doubleKey2", tag.Key);
-            Assert.Equal("1", tag.VStr);
+            Assert.Equal(1, tag.VDouble);
             tag = tags[5];
-            Assert.Equal(JaegerTagType.STRING, tag.VType);
+            Assert.Equal(JaegerTagType.BOOL, tag.VType);
             Assert.Equal("boolKey", tag.Key);
-            Assert.Equal("True", tag.VStr);
+            Assert.Equal(true, tag.VBool);
+
+            tag = tags[6];
+            Assert.Equal(JaegerTagType.LONG, tag.VType);
+            Assert.Equal("int_array", tag.Key);
+            Assert.Equal(1, tag.VLong);
+
+            tag = tags[8];
+            Assert.Equal(JaegerTagType.BOOL, tag.VType);
+            Assert.Equal("bool_array", tag.Key);
+            Assert.Equal(true, tag.VBool);
+
+            tag = tags[10];
+            Assert.Equal(JaegerTagType.DOUBLE, tag.VType);
+            Assert.Equal("double_array", tag.Key);
+            Assert.Equal(1, tag.VDouble);
+
+            tag = tags[12];
+            Assert.Equal(JaegerTagType.STRING, tag.VType);
+            Assert.Equal("string_array", tag.Key);
+            Assert.Equal("a", tag.VStr);
 
             // The second to last tag should be span.kind in this case
             tag = tags[tags.Length - 2];
@@ -298,19 +326,19 @@ namespace OpenTelemetry.Exporter.Jaeger.Tests.Implementation
             // The last tag should be library.name in this case
             tag = tags[tags.Length - 1];
             Assert.Equal(JaegerTagType.STRING, tag.VType);
-            Assert.Equal("library.name", tag.Key);
+            Assert.Equal("otel.library.name", tag.Key);
             Assert.Equal(nameof(CreateTestActivity), tag.VStr);
 
             var logs = jaegerSpan.Logs.ToArray();
             var jaegerLog = logs[0];
             Assert.Equal(activity.Events.First().Timestamp.ToEpochMicroseconds(), jaegerLog.Timestamp);
-            Assert.Equal(2, jaegerLog.Fields.Count());
+            Assert.Equal(4, jaegerLog.Fields.Count());
             var eventFields = jaegerLog.Fields.ToArray();
             var eventField = eventFields[0];
             Assert.Equal("key", eventField.Key);
             Assert.Equal("value", eventField.VStr);
-            eventField = eventFields[1];
-            Assert.Equal("message", eventField.Key);
+            eventField = eventFields[3];
+            Assert.Equal("event", eventField.Key);
             Assert.Equal("Event1", eventField.VStr);
             Assert.Equal(activity.Events.First().Timestamp.ToEpochMicroseconds(), jaegerLog.Timestamp);
 
@@ -321,12 +349,12 @@ namespace OpenTelemetry.Exporter.Jaeger.Tests.Implementation
             Assert.Equal("key", eventField.Key);
             Assert.Equal("value", eventField.VStr);
             eventField = eventFields[1];
-            Assert.Equal("message", eventField.Key);
+            Assert.Equal("event", eventField.Key);
             Assert.Equal("Event2", eventField.VStr);
         }
 
         [Fact]
-        public void JaegerSpanConverterTest_GenerateSpan_RemoteEndpointOmittedByDefault()
+        public void JaegerActivityConverterTest_GenerateJaegerSpan_RemoteEndpointOmittedByDefault()
         {
             // Arrange
             var span = CreateTestActivity();
@@ -339,7 +367,7 @@ namespace OpenTelemetry.Exporter.Jaeger.Tests.Implementation
         }
 
         [Fact]
-        public void JaegerSpanConverterTest_GenerateSpan_RemoteEndpointResolution()
+        public void JaegerActivityConverterTest_GenerateJaegerSpan_RemoteEndpointResolution()
         {
             // Arrange
             var span = CreateTestActivity(
@@ -357,7 +385,7 @@ namespace OpenTelemetry.Exporter.Jaeger.Tests.Implementation
         }
 
         [Fact]
-        public void JaegerSpanConverterTest_GenerateSpan_PeerServiceNameIgnoredForServerSpan()
+        public void JaegerActivityConverterTest_GenerateJaegerSpan_PeerServiceNameIgnoredForServerSpan()
         {
             // Arrange
             var span = CreateTestActivity(
@@ -375,26 +403,73 @@ namespace OpenTelemetry.Exporter.Jaeger.Tests.Implementation
             Assert.Empty(jaegerSpan.Tags.Where(t => t.Key == "peer.service"));
         }
 
-        [Fact]
-        public void JaegerSpanConverterTest_GenerateSpan_RemoteEndpointResolutionPriority()
+        [Theory]
+        [MemberData(nameof(RemoteEndpointPriorityTestCase.GetTestCases), MemberType = typeof(RemoteEndpointPriorityTestCase))]
+        public void JaegerActivityConverterTest_GenerateJaegerSpan_RemoteEndpointResolutionPriority(RemoteEndpointPriorityTestCase testCase)
         {
             // Arrange
-            var span = CreateTestActivity(
-                additionalAttributes: new Dictionary<string, object>
-                {
-                    ["http.host"] = "DiscardedRemoteServiceName",
-                    ["peer.service"] = "RemoteServiceName",
-                    ["peer.hostname"] = "DiscardedRemoteServiceName",
-                });
+            var activity = CreateTestActivity(additionalAttributes: testCase.RemoteEndpointAttributes);
 
             // Act
-            var jaegerSpan = span.ToJaegerSpan();
+            var jaegerSpan = activity.ToJaegerSpan();
 
             // Assert
             var tags = jaegerSpan.Tags.Where(t => t.Key == "peer.service");
             Assert.Single(tags);
             var tag = tags.First();
-            Assert.Equal("RemoteServiceName", tag.VStr);
+            Assert.Equal(testCase.ExpectedResult, tag.VStr);
+        }
+
+        [Fact]
+        public void JaegerActivityConverterTest_NullTagValueTest()
+        {
+            // Arrange
+            var activity = CreateTestActivity(additionalAttributes: new Dictionary<string, object> { ["nullTag"] = null });
+
+            // Act
+            var jaegerSpan = activity.ToJaegerSpan();
+
+            // Assert
+            Assert.DoesNotContain(jaegerSpan.Tags, t => t.Key == "nullTag");
+        }
+
+        [Theory]
+        [InlineData(StatusCode.Unset, "unset")]
+        [InlineData(StatusCode.Ok, "Ok")]
+        [InlineData(StatusCode.Error, "ERROR")]
+        [InlineData(StatusCode.Unset, "iNvAlId")]
+        public void JaegerActivityConverterTest_Status_ErrorFlagTest(StatusCode expectedStatusCode, string statusCodeTagValue)
+        {
+            // Arrange
+            var activity = CreateTestActivity();
+            activity.SetTag(SpanAttributeConstants.StatusCodeKey, statusCodeTagValue);
+
+            // Act
+            var jaegerSpan = activity.ToJaegerSpan();
+
+            // Assert
+
+            Assert.Equal(expectedStatusCode, activity.GetStatus().StatusCode);
+
+            if (expectedStatusCode == StatusCode.Unset)
+            {
+                Assert.DoesNotContain(jaegerSpan.Tags, t => t.Key == SpanAttributeConstants.StatusCodeKey);
+            }
+            else
+            {
+                Assert.Equal(
+                    StatusHelper.GetTagValueForStatusCode(expectedStatusCode),
+                    jaegerSpan.Tags.FirstOrDefault(t => t.Key == SpanAttributeConstants.StatusCodeKey).VStr);
+            }
+
+            if (expectedStatusCode == StatusCode.Error)
+            {
+                Assert.Contains(jaegerSpan.Tags, t => t.Key == JaegerActivityExtensions.JaegerErrorFlagTagName && t.VType == JaegerTagType.BOOL && (t.VBool ?? false));
+            }
+            else
+            {
+                Assert.DoesNotContain(jaegerSpan.Tags, t => t.Key == JaegerActivityExtensions.JaegerErrorFlagTagName);
+            }
         }
 
         internal static Activity CreateTestActivity(
@@ -403,23 +478,30 @@ namespace OpenTelemetry.Exporter.Jaeger.Tests.Implementation
             bool addEvents = true,
             bool addLinks = true,
             Resource resource = null,
-            ActivityKind kind = ActivityKind.Client)
+            ActivityKind kind = ActivityKind.Client,
+            bool isRootSpan = false,
+            Status? status = null,
+            long ticksToAdd = 60 * TimeSpan.TicksPerSecond)
         {
             var startTimestamp = DateTime.UtcNow;
-            var endTimestamp = startTimestamp.AddSeconds(60);
+            var endTimestamp = startTimestamp.AddTicks(ticksToAdd);
             var eventTimestamp = DateTime.UtcNow;
             var traceId = ActivityTraceId.CreateFromString("e8ea7e9ac72de94e91fabc613f9686b2".AsSpan());
 
-            var parentSpanId = ActivitySpanId.CreateFromBytes(new byte[] { 12, 23, 34, 45, 56, 67, 78, 89 });
+            var parentSpanId = isRootSpan ? default : ActivitySpanId.CreateFromBytes(new byte[] { 12, 23, 34, 45, 56, 67, 78, 89 });
 
             var attributes = new Dictionary<string, object>
             {
-                { "stringKey", "value"},
-                { "longKey", 1L},
+                { "stringKey", "value" },
+                { "longKey", 1L },
                 { "longKey2", 1 },
-                { "doubleKey", 1D},
-                { "doubleKey2", 1F},
-                { "boolKey", true},
+                { "doubleKey", 1D },
+                { "doubleKey2", 1F },
+                { "boolKey", true },
+                { "int_array", new int[] { 1, 2 } },
+                { "bool_array", new bool[] { true, false } },
+                { "double_array", new double[] { 1.0, 1.1 } },
+                { "string_array", new string[] { "a", "b" } },
             };
             if (additionalAttributes != null)
             {
@@ -434,54 +516,193 @@ namespace OpenTelemetry.Exporter.Jaeger.Tests.Implementation
                 new ActivityEvent(
                     "Event1",
                     eventTimestamp,
-                    new Dictionary<string, object>
+                    new ActivityTagsCollection(new Dictionary<string, object>
                     {
                         { "key", "value" },
-                    }
-                ),
+                        { "string_array", new string[] { "a", "b" } },
+                    })),
                 new ActivityEvent(
                     "Event2",
                     eventTimestamp,
-                    new Dictionary<string, object>
+                    new ActivityTagsCollection(new Dictionary<string, object>
                     {
                         { "key", "value" },
-                    }
-                ),
+                    })),
             };
 
             var linkedSpanId = ActivitySpanId.CreateFromString("888915b6286b9c41".AsSpan());
 
             var activitySource = new ActivitySource(nameof(CreateTestActivity));
+
+            var tags = setAttributes ?
+                    attributes
+                    : null;
+            var links = addLinks ?
+                    new[]
+                    {
+                        new ActivityLink(new ActivityContext(
+                            traceId,
+                            linkedSpanId,
+                            ActivityTraceFlags.Recorded)),
+                    }
+                    : null;
+
             var activity = activitySource.StartActivity(
                 "Name",
                 kind,
                 parentContext: new ActivityContext(traceId, parentSpanId, ActivityTraceFlags.Recorded),
-                tags: setAttributes ?
-                    // TODO: reverse here for now so it matches order in tests.
-                    attributes.Reverse().Select(kvp => new KeyValuePair<string, string>(kvp.Key, kvp.Value.ToString()))
-                    : null,
-                links: addLinks ?
-                    new[] { new ActivityLink(new ActivityContext(
-                        traceId,
-                        linkedSpanId,
-                        ActivityTraceFlags.Recorded)), }
-                    : null,
+                tags,
+                links,
                 startTime: startTimestamp);
 
             if (addEvents)
             {
-                // TODO: reverse here for now so it matches order in tests.
-                events.Reverse();
                 foreach (var evnt in events)
                 {
                     activity.AddEvent(evnt);
                 }
             }
 
+            if (status.HasValue)
+            {
+                activity.SetStatus(status.Value);
+            }
+
             activity.SetEndTime(endTimestamp);
             activity.Stop();
 
             return activity;
+        }
+
+        private long TimeSpanToMicroseconds(TimeSpan timeSpan)
+        {
+            return timeSpan.Ticks / (TimeSpan.TicksPerMillisecond / 1000);
+        }
+
+        public class RemoteEndpointPriorityTestCase
+        {
+            public string Name { get; set; }
+
+            public string ExpectedResult { get; set; }
+
+            public Dictionary<string, object> RemoteEndpointAttributes { get; set; }
+
+            public static IEnumerable<object[]> GetTestCases()
+            {
+                yield return new object[]
+                {
+                    new RemoteEndpointPriorityTestCase
+                    {
+                        Name = "Highest priority name = net.peer.name",
+                        ExpectedResult = "RemoteServiceName",
+                        RemoteEndpointAttributes = new Dictionary<string, object>
+                        {
+                            ["http.host"] = "DiscardedRemoteServiceName",
+                            ["net.peer.name"] = "RemoteServiceName",
+                            ["peer.hostname"] = "DiscardedRemoteServiceName",
+                        },
+                    },
+                };
+
+                yield return new object[]
+                {
+                    new RemoteEndpointPriorityTestCase
+                    {
+                        Name = "Highest priority name = SemanticConventions.AttributePeerService",
+                        ExpectedResult = "RemoteServiceName",
+                        RemoteEndpointAttributes = new Dictionary<string, object>
+                        {
+                            [SemanticConventions.AttributePeerService] = "RemoteServiceName",
+                            ["http.host"] = "DiscardedRemoteServiceName",
+                            ["net.peer.name"] = "DiscardedRemoteServiceName",
+                            ["net.peer.port"] = "1234",
+                            ["peer.hostname"] = "DiscardedRemoteServiceName",
+                        },
+                    },
+                };
+
+                yield return new object[]
+                {
+                    new RemoteEndpointPriorityTestCase
+                    {
+                        Name = "Only has net.peer.name and net.peer.port",
+                        ExpectedResult = "RemoteServiceName:1234",
+                        RemoteEndpointAttributes = new Dictionary<string, object>
+                        {
+                            ["net.peer.name"] = "RemoteServiceName",
+                            ["net.peer.port"] = "1234",
+                        },
+                    },
+                };
+
+                yield return new object[]
+                {
+                    new RemoteEndpointPriorityTestCase
+                    {
+                        Name = "net.peer.port is an int",
+                        ExpectedResult = "RemoteServiceName:1234",
+                        RemoteEndpointAttributes = new Dictionary<string, object>
+                        {
+                            ["net.peer.name"] = "RemoteServiceName",
+                            ["net.peer.port"] = 1234,
+                        },
+                    },
+                };
+
+                yield return new object[]
+                {
+                    new RemoteEndpointPriorityTestCase
+                    {
+                        Name = "Has net.peer.name and net.peer.port",
+                        ExpectedResult = "RemoteServiceName:1234",
+                        RemoteEndpointAttributes = new Dictionary<string, object>
+                        {
+                            ["http.host"] = "DiscardedRemoteServiceName",
+                            ["net.peer.name"] = "RemoteServiceName",
+                            ["net.peer.port"] = "1234",
+                            ["peer.hostname"] = "DiscardedRemoteServiceName",
+                        },
+                    },
+                };
+
+                yield return new object[]
+                {
+                    new RemoteEndpointPriorityTestCase
+                    {
+                        Name = "Has net.peer.ip and net.peer.port",
+                        ExpectedResult = "1.2.3.4:1234",
+                        RemoteEndpointAttributes = new Dictionary<string, object>
+                        {
+                            ["http.host"] = "DiscardedRemoteServiceName",
+                            ["net.peer.ip"] = "1.2.3.4",
+                            ["net.peer.port"] = "1234",
+                            ["peer.hostname"] = "DiscardedRemoteServiceName",
+                        },
+                    },
+                };
+
+                yield return new object[]
+                {
+                    new RemoteEndpointPriorityTestCase
+                    {
+                        Name = "Has net.peer.name, net.peer.ip, and net.peer.port",
+                        ExpectedResult = "RemoteServiceName:1234",
+                        RemoteEndpointAttributes = new Dictionary<string, object>
+                        {
+                            ["http.host"] = "DiscardedRemoteServiceName",
+                            ["net.peer.name"] = "RemoteServiceName",
+                            ["net.peer.ip"] = "1.2.3.4",
+                            ["net.peer.port"] = "1234",
+                            ["peer.hostname"] = "DiscardedRemoteServiceName",
+                        },
+                    },
+                };
+            }
+
+            public override string ToString()
+            {
+                return this.Name;
+            }
         }
     }
 }

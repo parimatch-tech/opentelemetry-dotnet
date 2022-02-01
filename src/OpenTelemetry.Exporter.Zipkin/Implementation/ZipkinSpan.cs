@@ -1,4 +1,4 @@
-﻿// <copyright file="ZipkinSpan.cs" company="OpenTelemetry Authors">
+// <copyright file="ZipkinSpan.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,9 +13,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 // </copyright>
-using System;
+
 using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
+using System.Threading;
 using OpenTelemetry.Internal;
 
 namespace OpenTelemetry.Exporter.Zipkin.Implementation
@@ -32,20 +36,13 @@ namespace OpenTelemetry.Exporter.Zipkin.Implementation
             long? duration,
             ZipkinEndpoint localEndpoint,
             ZipkinEndpoint remoteEndpoint,
-            in PooledList<ZipkinAnnotation>? annotations,
-            in PooledList<KeyValuePair<string, string>>? tags,
+            in PooledList<ZipkinAnnotation> annotations,
+            in PooledList<KeyValuePair<string, object>> tags,
             bool? debug,
             bool? shared)
         {
-            if (string.IsNullOrWhiteSpace(traceId))
-            {
-                throw new ArgumentNullException(nameof(traceId));
-            }
-
-            if (string.IsNullOrWhiteSpace(id))
-            {
-                throw new ArgumentNullException(nameof(id));
-            }
+            Guard.ThrowIfNullOrWhitespace(traceId, nameof(traceId));
+            Guard.ThrowIfNullOrWhitespace(id, nameof(id));
 
             this.TraceId = traceId;
             this.ParentId = parentId;
@@ -80,9 +77,9 @@ namespace OpenTelemetry.Exporter.Zipkin.Implementation
 
         public ZipkinEndpoint RemoteEndpoint { get; }
 
-        public PooledList<ZipkinAnnotation>? Annotations { get; }
+        public PooledList<ZipkinAnnotation> Annotations { get; }
 
-        public PooledList<KeyValuePair<string, string>>? Tags { get; }
+        public PooledList<KeyValuePair<string, object>> Tags { get; }
 
         public bool? Debug { get; }
 
@@ -90,74 +87,77 @@ namespace OpenTelemetry.Exporter.Zipkin.Implementation
 
         public void Return()
         {
-            this.Annotations?.Return();
-            this.Tags?.Return();
+            this.Annotations.Return();
+            this.Tags.Return();
         }
 
         public void Write(Utf8JsonWriter writer)
         {
             writer.WriteStartObject();
 
-            writer.WriteString("traceId", this.TraceId);
+            writer.WriteString(ZipkinSpanJsonHelper.TraceIdPropertyName, this.TraceId);
 
             if (this.Name != null)
             {
-                writer.WriteString("name", this.Name);
+                writer.WriteString(ZipkinSpanJsonHelper.NamePropertyName, this.Name);
             }
 
             if (this.ParentId != null)
             {
-                writer.WriteString("parentId", this.ParentId);
+                writer.WriteString(ZipkinSpanJsonHelper.ParentIdPropertyName, this.ParentId);
             }
 
-            writer.WriteString("id", this.Id);
+            writer.WriteString(ZipkinSpanJsonHelper.IdPropertyName, this.Id);
 
-            writer.WriteString("kind", this.Kind);
+            if (this.Kind != null)
+            {
+                writer.WriteString(ZipkinSpanJsonHelper.KindPropertyName, this.Kind);
+            }
 
             if (this.Timestamp.HasValue)
             {
-                writer.WriteNumber("timestamp", this.Timestamp.Value);
+                writer.WriteNumber(ZipkinSpanJsonHelper.TimestampPropertyName, this.Timestamp.Value);
             }
 
             if (this.Duration.HasValue)
             {
-                writer.WriteNumber("duration", this.Duration.Value);
+                writer.WriteNumber(ZipkinSpanJsonHelper.DurationPropertyName, this.Duration.Value);
             }
 
             if (this.Debug.HasValue)
             {
-                writer.WriteBoolean("debug", this.Debug.Value);
+                writer.WriteBoolean(ZipkinSpanJsonHelper.DebugPropertyName, this.Debug.Value);
             }
 
             if (this.Shared.HasValue)
             {
-                writer.WriteBoolean("shared", this.Shared.Value);
+                writer.WriteBoolean(ZipkinSpanJsonHelper.SharedPropertyName, this.Shared.Value);
             }
 
             if (this.LocalEndpoint != null)
             {
-                writer.WritePropertyName("localEndpoint");
+                writer.WritePropertyName(ZipkinSpanJsonHelper.LocalEndpointPropertyName);
                 this.LocalEndpoint.Write(writer);
             }
 
             if (this.RemoteEndpoint != null)
             {
-                writer.WritePropertyName("remoteEndpoint");
+                writer.WritePropertyName(ZipkinSpanJsonHelper.RemoteEndpointPropertyName);
                 this.RemoteEndpoint.Write(writer);
             }
 
-            if (this.Annotations.HasValue)
+            if (!this.Annotations.IsEmpty)
             {
-                writer.WritePropertyName("annotations");
+                writer.WritePropertyName(ZipkinSpanJsonHelper.AnnotationsPropertyName);
                 writer.WriteStartArray();
 
-                foreach (var annotation in this.Annotations.Value)
+                foreach (var annotation in this.Annotations)
                 {
                     writer.WriteStartObject();
 
-                    writer.WriteNumber("timestamp", annotation.Timestamp);
+                    writer.WriteNumber(ZipkinSpanJsonHelper.TimestampPropertyName, annotation.Timestamp);
 
-                    writer.WriteString("value", annotation.Value);
+                    writer.WriteString(ZipkinSpanJsonHelper.ValuePropertyName, annotation.Value);
 
                     writer.WriteEndObject();
                 }
@@ -165,20 +165,57 @@ namespace OpenTelemetry.Exporter.Zipkin.Implementation
                 writer.WriteEndArray();
             }
 
-            if (this.Tags.HasValue)
+            if (!this.Tags.IsEmpty || this.LocalEndpoint.Tags != null)
             {
-                writer.WritePropertyName("tags");
+                writer.WritePropertyName(ZipkinSpanJsonHelper.TagsPropertyName);
                 writer.WriteStartObject();
 
-                foreach (var tag in this.Tags.Value)
+                // this will be used when we convert int, double, int[], double[] to string
+                var originalUICulture = Thread.CurrentThread.CurrentUICulture;
+                Thread.CurrentThread.CurrentUICulture = CultureInfo.InvariantCulture;
+
+                try
                 {
-                    writer.WriteString(tag.Key, tag.Value);
+                    foreach (var tag in this.LocalEndpoint.Tags ?? Enumerable.Empty<KeyValuePair<string, object>>())
+                    {
+                        writer.WriteString(tag.Key, ConvertObjectToString(tag.Value));
+                    }
+
+                    foreach (var tag in this.Tags)
+                    {
+                        writer.WriteString(tag.Key, ConvertObjectToString(tag.Value));
+                    }
+                }
+                finally
+                {
+                    Thread.CurrentThread.CurrentUICulture = originalUICulture;
                 }
 
                 writer.WriteEndObject();
             }
 
             writer.WriteEndObject();
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static string ConvertObjectToString(object obj)
+        {
+            return obj switch
+            {
+                string stringVal => stringVal,
+                bool boolVal => GetBoolString(boolVal),
+                int[] arrayValue => string.Join(",", arrayValue),
+                long[] arrayValue => string.Join(",", arrayValue),
+                double[] arrayValue => string.Join(",", arrayValue),
+                bool[] arrayValue => string.Join(",", arrayValue.Select(GetBoolString)),
+                _ => obj.ToString(),
+            };
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static string GetBoolString(bool value)
+        {
+            return value ? "true" : "false";
         }
     }
 }

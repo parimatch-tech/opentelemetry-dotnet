@@ -1,4 +1,4 @@
-﻿// <copyright file="JaegerSpanRefType.cs" company="OpenTelemetry Authors">
+// <copyright file="JaegerSpanRefType.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,12 +22,12 @@ namespace OpenTelemetry.Exporter.Jaeger.Implementation
     internal enum JaegerSpanRefType
     {
         /// <summary>
-        /// A child span
+        /// A child span.
         /// </summary>
         CHILD_OF = 0,
 
         /// <summary>
-        /// A sibling span
+        /// A sibling span.
         /// </summary>
         FOLLOWS_FROM = 1,
     }

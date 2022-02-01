@@ -1,4 +1,4 @@
-﻿// <copyright file="AspNetCoreInstrumentation.cs" company="OpenTelemetry Authors">
+// <copyright file="AspNetCoreInstrumentation.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,34 +15,19 @@
 // </copyright>
 using System;
 using OpenTelemetry.Instrumentation.AspNetCore.Implementation;
-using OpenTelemetry.Trace;
 
 namespace OpenTelemetry.Instrumentation.AspNetCore
 {
     /// <summary>
-    /// Requests instrumentation.
+    /// Asp.Net Core Requests instrumentation.
     /// </summary>
-    public class AspNetCoreInstrumentation : IDisposable
+    internal class AspNetCoreInstrumentation : IDisposable
     {
         private readonly DiagnosticSourceSubscriber diagnosticSourceSubscriber;
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="AspNetCoreInstrumentation"/> class.
-        /// </summary>
-        /// <param name="tracer">Tracer to record traced with.</param>
-        public AspNetCoreInstrumentation(Tracer tracer)
-            : this(tracer, new AspNetCoreInstrumentationOptions())
+        public AspNetCoreInstrumentation(HttpInListener httpInListener)
         {
-        }
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="AspNetCoreInstrumentation"/> class.
-        /// </summary>
-        /// <param name="tracer">Tracer to record traced with.</param>
-        /// <param name="options">Configuration options for ASP.NET Core instrumentation.</param>
-        public AspNetCoreInstrumentation(Tracer tracer, AspNetCoreInstrumentationOptions options)
-        {
-            this.diagnosticSourceSubscriber = new DiagnosticSourceSubscriber(new HttpInListener("Microsoft.AspNetCore", tracer, options), null);
+            this.diagnosticSourceSubscriber = new DiagnosticSourceSubscriber(httpInListener, null);
             this.diagnosticSourceSubscriber.Subscribe();
         }
 

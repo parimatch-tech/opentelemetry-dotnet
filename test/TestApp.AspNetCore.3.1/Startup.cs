@@ -1,4 +1,4 @@
-﻿// <copyright file="Startup.cs" company="OpenTelemetry Authors">
+// <copyright file="Startup.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,9 +19,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
-using OpenTelemetry.Trace.Configuration;
 
 namespace TestApp.AspNetCore._3._1
 {
@@ -29,7 +27,7 @@ namespace TestApp.AspNetCore._3._1
     {
         public Startup(IConfiguration configuration)
         {
-            Configuration = configuration;
+            this.Configuration = configuration;
         }
 
         public IConfiguration Configuration { get; }
@@ -41,14 +39,10 @@ namespace TestApp.AspNetCore._3._1
             services.AddSingleton<HttpClient>();
             services.AddSingleton(
                 new CallbackMiddleware.CallbackMiddlewareImpl());
-
-            services.TryAddSingleton<TracerFactory>(_ => TracerFactory.Create(b => b
-                    .AddRequestInstrumentation()
-                    .AddDependencyInstrumentation()));
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
-        public void Configure(IApplicationBuilder app, IWebHostEnvironment env, TracerFactory factory)
+        public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
         {
             if (env.IsDevelopment())
             {

@@ -1,4 +1,4 @@
-﻿// <copyright file="PrometheusExporter.cs" company="OpenTelemetry Authors">
+// <copyright file="PrometheusExporter.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,20 +14,26 @@
 // limitations under the License.
 // </copyright>
 
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using OpenTelemetry.Metrics.Export;
+using System;
+using OpenTelemetry.Exporter.Prometheus;
+using OpenTelemetry.Metrics;
 
-namespace OpenTelemetry.Exporter.Prometheus
+namespace OpenTelemetry.Exporter
 {
     /// <summary>
-    /// Exporter of Open Telemetry metrics to Prometheus.
+    /// Exporter of OpenTelemetry metrics to Prometheus.
     /// </summary>
-    public class PrometheusExporter : MetricExporter
+    [AggregationTemporality(AggregationTemporality.Cumulative)]
+    [ExportModes(ExportModes.Pull)]
+    public class PrometheusExporter : BaseExporter<Metric>, IPullMetricExporter
     {
+        internal const string HttpListenerStartFailureExceptionMessage = "PrometheusExporter http listener could not be started.";
         internal readonly PrometheusExporterOptions Options;
+        internal Batch<Metric> Metrics; // TODO: this is no longer needed, we can remove it later
+        private readonly PrometheusExporterHttpServer metricsHttpServer;
+        private Func<int, bool> funcCollect;
+        private Func<Batch<Metric>, ExportResult> funcExport;
+        private bool disposed;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="PrometheusExporter"/> class.
@@ -36,28 +42,55 @@ namespace OpenTelemetry.Exporter.Prometheus
         public PrometheusExporter(PrometheusExporterOptions options)
         {
             this.Options = options;
-            this.Metrics = new List<Metric>();
+
+            if (options.StartHttpListener)
+            {
+                try
+                {
+                    this.metricsHttpServer = new PrometheusExporterHttpServer(this);
+                    this.metricsHttpServer.Start();
+                }
+                catch (Exception ex)
+                {
+                    throw new InvalidOperationException(HttpListenerStartFailureExceptionMessage, ex);
+                }
+            }
+
+            this.CollectionManager = new PrometheusCollectionManager(this);
         }
 
-        private List<Metric> Metrics { get; set; }
-
-        /// <inheritdoc/>
-        public override Task<ExportResult> ExportAsync(IEnumerable<Metric> metrics, CancellationToken cancellationToken)
+        public Func<int, bool> Collect
         {
-            // Prometheus uses a pull model, not a push.
-            // Accumulate the exported metrics internally, return success.
-            // The pull process will read this internally stored metrics
-            // at its own schedule.
-            this.Metrics.AddRange(metrics);
-            return Task.FromResult(ExportResult.Success);
+            get => this.funcCollect;
+            set => this.funcCollect = value;
         }
 
-        internal List<Metric> GetAndClearMetrics()
+        internal Func<Batch<Metric>, ExportResult> OnExport
         {
-            // TODO harden this so as to not lose data if Export fails.
-            List<Metric> current = this.Metrics;
-            this.Metrics = new List<Metric>();
-            return current;
+            get => this.funcExport;
+            set => this.funcExport = value;
+        }
+
+        internal PrometheusCollectionManager CollectionManager { get; }
+
+        public override ExportResult Export(in Batch<Metric> metrics)
+        {
+            return this.OnExport(metrics);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (!this.disposed)
+            {
+                if (disposing)
+                {
+                    this.metricsHttpServer?.Dispose();
+                }
+
+                this.disposed = true;
+            }
+
+            base.Dispose(disposing);
         }
     }
 }

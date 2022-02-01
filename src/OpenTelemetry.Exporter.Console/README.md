@@ -1,21 +1,28 @@
-# OpenTelemetry.Exporter.Console
+# Console Exporter for OpenTelemetry .NET
 
-This is a simple exporter that that JSON serializes collected spans and prints them to the Console and is intended to be used during learning how spans are creating and exported.
+[![NuGet](https://img.shields.io/nuget/v/OpenTelemetry.Exporter.Console.svg)](https://www.nuget.org/packages/OpenTelemetry.Exporter.Console)
+[![NuGet](https://img.shields.io/nuget/dt/OpenTelemetry.Exporter.Console.svg)](https://www.nuget.org/packages/OpenTelemetry.Exporter.Console)
 
-**Note** This is not intended as a production tool
+The console exporter prints data to the Console window.
+ConsoleExporter supports exporting logs, metrics and traces.
 
-## Options
+**Note:** this exporter is intended to be used during learning how telemetry
+data are created and exported. It is not recommended for any production
+environment.
 
-| Parameter | Description | Default |
-| - | - | - |
-| `-p` or `--pretty` | Specify if the output should be pretty printed | `false` |
+## Installation
 
-## Examples
+```shell
+dotnet add package OpenTelemetry.Exporter.Console
+```
 
-The default output of the test will be compressed JSON.
+See the individual "getting started" examples depending on the signal being
+used:
 
-`dotnet run -p samples/Exporters/Exporters.csproj console`
+* [Logs](../../docs/logs/getting-started/Program.cs)
+* [Metrics](../../docs/metrics/getting-started/Program.cs)
+* [Traces](../../docs/trace/getting-started/Program.cs)
 
-To run the test with expanded JSON, you can use the `--pretty` flag like this.
+## References
 
-`dotnet run -p samples/Exporters/Exporters.csproj console --pretty`
+* [OpenTelemetry Project](https://opentelemetry.io/)

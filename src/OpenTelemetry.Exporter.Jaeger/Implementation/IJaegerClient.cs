@@ -1,4 +1,4 @@
-﻿// <copyright file="IJaegerClient.cs" company="OpenTelemetry Authors">
+// <copyright file="IJaegerClient.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,10 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 // </copyright>
+
 using System;
-using System.Net;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace OpenTelemetry.Exporter.Jaeger.Implementation
 {
@@ -24,14 +22,10 @@ namespace OpenTelemetry.Exporter.Jaeger.Implementation
     {
         bool Connected { get; }
 
-        EndPoint RemoteEndPoint { get; }
-
-        void Connect(string host, int port);
+        void Connect();
 
         void Close();
 
-        ValueTask<int> SendAsync(byte[] buffer, CancellationToken cancellationToken = default);
-
-        ValueTask<int> SendAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken = default);
+        int Send(byte[] buffer, int offset, int count);
     }
 }

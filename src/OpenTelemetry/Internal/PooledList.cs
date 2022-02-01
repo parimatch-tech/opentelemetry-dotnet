@@ -1,4 +1,4 @@
-﻿// <copyright file="PooledList.cs" company="OpenTelemetry Authors">
+// <copyright file="PooledList.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,7 +22,6 @@ namespace OpenTelemetry.Internal
 {
     internal readonly struct PooledList<T> : IEnumerable<T>, ICollection
     {
-        private static readonly ArrayPool<T> Pool = ArrayPool<T>.Create(4096, 64);
         private static int lastAllocatedSize = 64;
 
         private readonly T[] buffer;
@@ -48,28 +47,25 @@ namespace OpenTelemetry.Internal
 
         public static PooledList<T> Create()
         {
-            return new PooledList<T>(Pool.Rent(lastAllocatedSize), 0);
+            return new PooledList<T>(ArrayPool<T>.Shared.Rent(lastAllocatedSize), 0);
         }
 
         public static void Add(ref PooledList<T> list, T item)
         {
-            var buffer = list.buffer;
+            Guard.ThrowIfNull(list.buffer, $"{nameof(list)}.{nameof(list.buffer)}");
 
-            if (buffer == null)
-            {
-                throw new InvalidOperationException("Items cannot be added to an empty pool instance.");
-            }
+            var buffer = list.buffer;
 
             if (list.Count >= buffer.Length)
             {
                 lastAllocatedSize = buffer.Length * 2;
                 var previousBuffer = buffer;
 
-                buffer = Pool.Rent(lastAllocatedSize);
+                buffer = ArrayPool<T>.Shared.Rent(lastAllocatedSize);
 
                 var span = previousBuffer.AsSpan();
                 span.CopyTo(buffer);
-                Pool.Return(previousBuffer);
+                ArrayPool<T>.Shared.Return(previousBuffer);
             }
 
             buffer[list.Count] = item;
@@ -86,11 +82,14 @@ namespace OpenTelemetry.Internal
             var buffer = this.buffer;
             if (buffer != null)
             {
-                Pool.Return(buffer);
+                ArrayPool<T>.Shared.Return(buffer);
             }
         }
 
-        void ICollection.CopyTo(Array array, int index) => throw new NotSupportedException();
+        void ICollection.CopyTo(Array array, int index)
+        {
+            Array.Copy(this.buffer, 0, array, index, this.Count);
+        }
 
         public Enumerator GetEnumerator()
         {

@@ -1,4 +1,4 @@
-﻿// <copyright file="SpanContext.cs" company="OpenTelemetry Authors">
+// <copyright file="SpanContext.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,20 +16,21 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using OpenTelemetry.Context.Propagation;
 
 namespace OpenTelemetry.Trace
 {
     /// <summary>
-    /// A class that represents a span context. A span context contains the state that must propagate to
-    /// child <see cref="TelemetrySpan"/> and across process boundaries. It contains the identifiers <see cref="ActivityTraceId"/>
-    /// and <see cref="ActivitySpanId"/> associated with the <see cref="TelemetrySpan"/> and a set of <see cref="TraceFlags"/>.
+    /// A struct that represents a span context. A span context contains the portion of a span
+    /// that must propagate to child <see cref="TelemetrySpan"/> and across process boundaries.
+    /// It contains the identifiers <see cref="ActivityTraceId"/>and <see cref="ActivitySpanId"/>
+    /// associated with the <see cref="TelemetrySpan"/> along with a set of
+    /// common <see cref="TraceFlags"/> and system-specific <see cref="TraceState"/> values>.
     /// </summary>
-    public readonly struct SpanContext
+    /// <remarks>SpanContext is a wrapper around <see cref="ActivityContext"/>.</remarks>
+    public readonly struct SpanContext : System.IEquatable<SpanContext>
     {
-        /// <summary>
-        /// A blank <see cref="SpanContext"/> that can be used for remote no-op operations.
-        /// </summary>
-        internal static readonly SpanContext BlankRemote = new SpanContext(default, default, ActivityTraceFlags.None, true);
+        internal readonly ActivityContext ActivityContext;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="SpanContext"/> struct with the given identifiers and options.
@@ -39,46 +40,94 @@ namespace OpenTelemetry.Trace
         /// <param name="traceFlags">The <see cref="TraceFlags"/> to
         /// associate with the <see cref="SpanContext"/>.</param>
         /// <param name="isRemote">The value indicating whether this <see cref="SpanContext"/> was propagated from the remote parent.</param>
-        /// <param name="tracestate">The tracestate to associate with the <see cref="SpanContext"/>.</param>
-        public SpanContext(in ActivityTraceId traceId, in ActivitySpanId spanId, ActivityTraceFlags traceFlags, bool isRemote = false, IEnumerable<KeyValuePair<string, string>> tracestate = null)
+        /// <param name="traceState">The traceState to associate with the <see cref="SpanContext"/>.</param>
+        public SpanContext(in ActivityTraceId traceId, in ActivitySpanId spanId, ActivityTraceFlags traceFlags, bool isRemote = false, IEnumerable<KeyValuePair<string, string>> traceState = null)
         {
-            this.TraceId = traceId;
-            this.SpanId = spanId;
-            this.TraceFlags = traceFlags;
-            this.IsRemote = isRemote;
-            this.Tracestate = tracestate ?? Enumerable.Empty<KeyValuePair<string, string>>();
+            this.ActivityContext = new ActivityContext(traceId, spanId, traceFlags, TraceStateUtilsNew.GetString(traceState), isRemote);
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="SpanContext"/> struct with the given identifiers and options.
+        /// </summary>
+        /// <param name="activityContext">The activity context.</param>
+        public SpanContext(in ActivityContext activityContext)
+        {
+            this.ActivityContext = activityContext;
         }
 
         /// <summary>
         /// Gets the <see cref="ActivityTraceId"/> associated with this <see cref="SpanContext"/>.
         /// </summary>
-        public ActivityTraceId TraceId { get; }
+        public ActivityTraceId TraceId
+        {
+            get
+            {
+                return this.ActivityContext.TraceId;
+            }
+        }
 
         /// <summary>
         /// Gets the <see cref="ActivitySpanId"/> associated with this <see cref="SpanContext"/>.
         /// </summary>
-        public ActivitySpanId SpanId { get; }
+        public ActivitySpanId SpanId
+        {
+            get
+            {
+                return this.ActivityContext.SpanId;
+            }
+        }
 
         /// <summary>
         /// Gets the <see cref="ActivityTraceFlags"/> associated with this <see cref="SpanContext"/>.
         /// </summary>
-        public ActivityTraceFlags TraceFlags { get; }
+        public ActivityTraceFlags TraceFlags
+        {
+            get
+            {
+                return this.ActivityContext.TraceFlags;
+            }
+        }
 
         /// <summary>
         /// Gets a value indicating whether this <see cref="SpanContext" />
         /// was propagated from a remote parent.
         /// </summary>
-        public bool IsRemote { get; }
+        public bool IsRemote
+        {
+            get
+            {
+                return this.ActivityContext.IsRemote;
+            }
+        }
 
         /// <summary>
         /// Gets a value indicating whether this <see cref="SpanContext"/> is valid.
         /// </summary>
-        public bool IsValid => this.IsTraceIdValid(this.TraceId) && this.IsSpanIdValid(this.SpanId);
+        public bool IsValid => IsTraceIdValid(this.TraceId) && IsSpanIdValid(this.SpanId);
 
         /// <summary>
-        /// Gets the <see cref="Tracestate"/> associated with this <see cref="SpanContext"/>.
+        /// Gets the <see cref="TraceState"/> associated with this <see cref="SpanContext"/>.
         /// </summary>
-        public IEnumerable<KeyValuePair<string, string>> Tracestate { get; }
+        public IEnumerable<KeyValuePair<string, string>> TraceState
+        {
+            get
+            {
+                if (string.IsNullOrEmpty(this.ActivityContext.TraceState))
+                {
+                    return Enumerable.Empty<KeyValuePair<string, string>>();
+                }
+
+                var traceStateResult = new List<KeyValuePair<string, string>>();
+                TraceStateUtilsNew.AppendTraceState(this.ActivityContext.TraceState, traceStateResult);
+                return traceStateResult;
+            }
+        }
+
+        /// <summary>
+        /// Converts a <see cref="SpanContext"/> into an <see cref="ActivityContext"/>.
+        /// </summary>
+        /// <param name="spanContext"><see cref="SpanContext"/> source.</param>
+        public static implicit operator ActivityContext(SpanContext spanContext) => spanContext.ActivityContext;
 
         /// <summary>
         /// Compare two <see cref="SpanContext"/> for equality.
@@ -97,37 +146,27 @@ namespace OpenTelemetry.Trace
         /// <inheritdoc/>
         public override int GetHashCode()
         {
-            var result = 1;
-            result = (31 * result) + this.TraceId.GetHashCode();
-            result = (31 * result) + this.SpanId.GetHashCode();
-            result = (31 * result) + this.TraceFlags.GetHashCode();
-            result = (31 * result) + this.Tracestate.GetHashCode();
-            return result;
+            return this.ActivityContext.GetHashCode();
         }
 
         /// <inheritdoc/>
         public override bool Equals(object obj)
         {
-            if (!(obj is SpanContext))
-            {
-                return false;
-            }
-
-            var that = (SpanContext)obj;
-
-            return this.TraceId.Equals(that.TraceId)
-                   && this.SpanId.Equals(that.SpanId)
-                   && this.TraceFlags.Equals(that.TraceFlags)
-                   && this.IsRemote == that.IsRemote
-                   && ((this.Tracestate == null && that.Tracestate == null) || (this.Tracestate != null && this.Tracestate.Equals(that.Tracestate)));
+            return (obj is SpanContext ctx) && this.ActivityContext.Equals(ctx.ActivityContext);
         }
 
-        private bool IsTraceIdValid(ActivityTraceId traceId)
+        /// <inheritdoc/>
+        public bool Equals(SpanContext other)
+        {
+            return this.ActivityContext.Equals(other.ActivityContext);
+        }
+
+        private static bool IsTraceIdValid(ActivityTraceId traceId)
         {
             return traceId != default;
         }
 
-        private bool IsSpanIdValid(ActivitySpanId spanId)
+        private static bool IsSpanIdValid(ActivitySpanId spanId)
         {
             return spanId != default;
         }

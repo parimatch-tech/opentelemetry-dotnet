@@ -1,4 +1,4 @@
-﻿// <copyright file="OpenTelemetryApiEventSource.cs" company="OpenTelemetry Authors">
+// <copyright file="OpenTelemetryApiEventSource.cs" company="OpenTelemetry Authors">
 // Copyright The OpenTelemetry Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,13 +16,12 @@
 
 using System;
 using System.Diagnostics.Tracing;
-using System.Globalization;
-using System.Threading;
 
 namespace OpenTelemetry.Internal
 {
     /// <summary>
     /// EventSource implementation for OpenTelemetry API.
+    /// This is used for internal logging of this library.
     /// </summary>
     [EventSource(Name = "OpenTelemetry-Api")]
     internal class OpenTelemetryApiEventSource : EventSource
@@ -30,27 +29,36 @@ namespace OpenTelemetry.Internal
         public static OpenTelemetryApiEventSource Log = new OpenTelemetryApiEventSource();
 
         [NonEvent]
-        public void SpanContextExtractException(Exception ex)
+        public void ActivityContextExtractException(string format, Exception ex)
         {
-            if (this.IsEnabled(EventLevel.Warning, (EventKeywords)(-1)))
+            if (this.IsEnabled(EventLevel.Warning, EventKeywords.All))
             {
-                this.FailedToExtractSpanContext(ToInvariantString(ex));
+                this.FailedToExtractActivityContext(format, ex.ToInvariantString());
+            }
+        }
+
+        [NonEvent]
+        public void BaggageExtractException(string format, Exception ex)
+        {
+            if (this.IsEnabled(EventLevel.Warning, EventKeywords.All))
+            {
+                this.FailedToExtractBaggage(format, ex.ToInvariantString());
             }
         }
 
         [NonEvent]
         public void TracestateExtractException(Exception ex)
         {
-            if (this.IsEnabled(EventLevel.Warning, (EventKeywords)(-1)))
+            if (this.IsEnabled(EventLevel.Warning, EventKeywords.All))
             {
-                this.TracestateExtractError(ToInvariantString(ex));
+                this.TracestateExtractError(ex.ToInvariantString());
             }
         }
 
         [NonEvent]
         public void TracestateKeyIsInvalid(ReadOnlySpan<char> key)
         {
-            if (this.IsEnabled(EventLevel.Warning, (EventKeywords)(-1)))
+            if (this.IsEnabled(EventLevel.Warning, EventKeywords.All))
             {
                 this.TracestateKeyIsInvalid(key.ToString());
             }
@@ -59,22 +67,10 @@ namespace OpenTelemetry.Internal
         [NonEvent]
         public void TracestateValueIsInvalid(ReadOnlySpan<char> value)
         {
-            if (this.IsEnabled(EventLevel.Warning, (EventKeywords)(-1)))
+            if (this.IsEnabled(EventLevel.Warning, EventKeywords.All))
             {
                 this.TracestateValueIsInvalid(value.ToString());
             }
-        }
-
-        [Event(1, Message = "Failed to extract span context: '{0}'", Level = EventLevel.Warning)]
-        public void FailedToExtractSpanContext(string exception)
-        {
-            this.WriteEvent(1, exception);
-        }
-
-        [Event(2, Message = "Failed to inject span context: '{0}'", Level = EventLevel.Warning)]
-        public void FailedToInjectSpanContext(string error)
-        {
-            this.WriteEvent(2, error);
         }
 
         [Event(3, Message = "Failed to parse tracestate: too many items", Level = EventLevel.Warning)]
@@ -107,23 +103,28 @@ namespace OpenTelemetry.Internal
             this.WriteEvent(7, methodName, argumentName, issue);
         }
 
-        /// <summary>
-        /// Returns a culture-independent string representation of the given <paramref name="exception"/> object,
-        /// appropriate for diagnostics tracing.
-        /// </summary>
-        private static string ToInvariantString(Exception exception)
+        [Event(8, Message = "Failed to extract activity context in format: '{0}', context: '{1}'.", Level = EventLevel.Warning)]
+        public void FailedToExtractActivityContext(string format, string exception)
         {
-            var originalUICulture = Thread.CurrentThread.CurrentUICulture;
+            this.WriteEvent(8, format, exception);
+        }
 
-            try
-            {
-                Thread.CurrentThread.CurrentUICulture = CultureInfo.InvariantCulture;
-                return exception.ToString();
-            }
-            finally
-            {
-                Thread.CurrentThread.CurrentUICulture = originalUICulture;
-            }
+        [Event(9, Message = "Failed to inject activity context in format: '{0}', context: '{1}'.", Level = EventLevel.Warning)]
+        public void FailedToInjectActivityContext(string format, string error)
+        {
+            this.WriteEvent(9, format, error);
+        }
+
+        [Event(10, Message = "Failed to extract baggage in format: '{0}', baggage: '{1}'.", Level = EventLevel.Warning)]
+        public void FailedToExtractBaggage(string format, string exception)
+        {
+            this.WriteEvent(10, format, exception);
+        }
+
+        [Event(11, Message = "Failed to inject baggage in format: '{0}', baggage: '{1}'.", Level = EventLevel.Warning)]
+        public void FailedToInjectBaggage(string format, string error)
+        {
+            this.WriteEvent(11, format, error);
         }
     }
 }
